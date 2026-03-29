@@ -1,0 +1,3 @@
+[submodule "jpexs-decompiler"]
+	path = jpexs-decompiler
+	url = https://github.com/jindrapetrik/jpexs-decompiler

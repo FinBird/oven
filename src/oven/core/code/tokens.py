@@ -1,0 +1,186 @@
+from __future__ import annotations
+
+import re
+from abc import ABC, abstractmethod
+from typing import Any, Callable
+
+__all__ = [
+    "Token",
+    "TerminalToken",
+    "NewlineToken",
+    "NonterminalToken",
+    "SurroundedToken",
+    "SeparatedToken",
+    "CodeFormatter",
+]
+
+
+class Token(ABC):
+    """Base code-generation token."""
+
+    __slots__ = ("origin", "options", "waiters", "_format_config")
+
+    def __init__(self, origin: Any, options: dict[str, Any] | None = None) -> None:
+        self.origin = origin
+        self.options = options or {}
+        self.waiters: list[Callable[[], None]] = []
+        self._format_config = self.options.get(
+            "format",
+            {
+                "indent_width": 4,
+                "newline": "\n",
+                "wrap_length": 80,
+            },
+        )
+
+    @property
+    def type(self) -> str:
+        # Example: TerminalToken -> Terminal
+        return self.__class__.__name__.removesuffix("Token")
+
+    @abstractmethod
+    def to_text(self) -> str:
+        raise NotImplementedError
+
+    def to_structure(self, options: dict[str, Any] | None = None) -> str:
+        return self._structurize(None, options or {})
+
+    @property
+    def indent_str(self) -> str:
+        """Indent string configured by indent width."""
+        return " " * self._format_config["indent_width"]
+
+    def indent(self, code: str, options: dict[str, Any]) -> str:
+        if not code:
+            return ""
+        indent_str = self.indent_str * options.get("level", 1)
+        return "\n".join(indent_str + line for line in code.splitlines())
+
+    @staticmethod
+    def _normalize_comment(comment: str) -> str:
+        clean = re.sub(r"/\*.*?\*/", "", comment)
+        clean = clean.replace("\n", "")
+        clean = re.sub(r"[ \t]+", " ", clean)
+        return clean.strip()
+
+    def _structurize(self, comment: str | None, options: dict[str, Any]) -> str:
+        opts = {"level": 0}
+        opts.update(options)
+
+        struct_str = self.indent(self.type, opts)
+        if comment is not None:
+            describe_at = opts.get("describe_at", 50)
+            struct_str = struct_str.ljust(describe_at)
+            if not comment.strip():
+                struct_str += "   <whitespace>"
+            else:
+                struct_str += f" ; {self._normalize_comment(comment)}"
+        struct_str += "\n"
+
+        children = getattr(self, "children", None)
+        if isinstance(children, list):
+            next_level_opts = opts.copy()
+            next_level_opts["level"] = next_level_opts["level"] + 1
+            for child in children:
+                if isinstance(child, Token):
+                    struct_str += child.to_structure(next_level_opts)
+        return struct_str
+
+
+class TerminalToken(Token):
+    def to_structure(self, options: dict[str, Any] | None = None) -> str:
+        return self._structurize(self.to_text(), options or {})
+
+    def to_text(self) -> str:
+        # Default text is the string representation of origin.
+        return str(self.origin)
+
+
+class NewlineToken(TerminalToken):
+    def to_text(self) -> str:
+        return "\n"
+
+
+class NonterminalToken(Token):
+    __slots__ = ("children",)
+
+    def __init__(self, origin: Any, children: list[Token], options: dict[str, Any] | None = None) -> None:
+        super().__init__(origin, options)
+        self.children = [c for c in children if c is not None]
+
+    def to_text(self) -> str:
+        return "".join(c.to_text() for c in self.children)
+
+
+class SurroundedToken(NonterminalToken):
+    def text_before(self) -> str:
+        return ""
+
+    def text_after(self) -> str:
+        return ""
+
+    def to_text(self) -> str:
+        return f"{self.text_before()}{super().to_text()}{self.text_after()}"
+
+    def to_structure(self, options: dict[str, Any] | None = None) -> str:
+        return self._structurize(f"{self.text_before()} ... {self.text_after()}", options or {})
+
+
+class SeparatedToken(SurroundedToken):
+    def text_between(self) -> str:
+        return ""
+
+    def to_text(self) -> str:
+        middle = self.text_between().join(c.to_text() for c in self.children)
+        return f"{self.text_before()}{middle}{self.text_after()}"
+
+    def to_structure(self, options: dict[str, Any] | None = None) -> str:
+        # Render as: prefix ... separator ... suffix
+        sep = self.text_between()
+        sep_display = " ".join([sep] * 3)
+        comment = f"{self.text_before()} {sep_display} {self.text_after()}"
+        return self._structurize(comment, options or {})
+
+
+class CodeFormatter:
+    """Formats emitted code with a unified indentation/wrapping policy."""
+
+    def __init__(self, indent_width: int = 2, wrap_length: int = 80):
+        self.indent_width = indent_width
+        self.wrap_length = wrap_length
+
+    def format_token(self, token: Token) -> str:
+        """Format code generated by a token tree."""
+        token._format_config = {
+            "indent_width": self.indent_width,
+            "newline": "\n",
+            "wrap_length": self.wrap_length,
+        }
+        raw_code = token.to_text()
+        return self._wrap_long_lines(raw_code)
+
+    def _wrap_long_lines(self, code: str) -> str:
+        """Wrap lines that exceed configured line length."""
+        lines: list[str] = []
+        for line in code.split("\n"):
+            if len(line) > self.wrap_length:
+                lines.extend(self._split_line(line))
+            else:
+                lines.append(line)
+        return "\n".join(lines)
+
+    def _split_line(self, line: str) -> list[str]:
+        """Split a long line at spaces while preserving token order."""
+        words = line.split(" ")
+        current: list[str] = []
+        result: list[str] = []
+        for word in words:
+            if len(" ".join(current + [word])) > self.wrap_length:
+                result.append(" ".join(current))
+                current = [word]
+            else:
+                current.append(word)
+        if current:
+            result.append(" ".join(current))
+        return result
+
