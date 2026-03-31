@@ -498,7 +498,13 @@ class ABCReader:
         multi_name_count = self.read_u30()
         multi_names: List[Multiname] = []
         for _ in range(multi_name_count - 1):
-            kind = MultinameKind(self.read_u8())
+            try:
+                kind = MultinameKind(self.read_u8())
+            except ValueError as exc:
+                if not self._verify_relaxed:
+                    raise InvalidABCCodeError(f"Invalid multiname kind: {exc}")
+                # In relaxed mode, skip invalid multiname kinds by using a placeholder
+                kind = MultinameKind.QNAME
             data = {}
 
             if kind in (MultinameKind.QNAME, MultinameKind.QNAMEA):
@@ -723,9 +729,11 @@ class ABCReader:
 
         name_idx = self.read_u30()
         if name_idx > len(pool.strings):
-            raise InvalidABCCodeError(
-                f"method name index out of range: {name_idx}, max: {len(pool.strings)}"
-            )
+            if not self._verify_relaxed:
+                raise InvalidABCCodeError(
+                    f"method name index out of range: {name_idx}, max: {len(pool.strings)}"
+                )
+            name_idx = 0
         name = pool.resolve_index(name_idx, 'string')
         flags = MethodFlags(self.read_u8())
 
@@ -1144,8 +1152,10 @@ class ABCReader:
                 validate_metadata_indices=True,
             )
 
-            # Allow trailing bytes for compatibility with real-world ABC files
-            # that may have padding or extra data after the payload
+            # Check for trailing bytes after valid payload
+            # In relaxed mode, we allow trailing bytes for compatibility
+            if not self._buffer.eof() and not self._verify_relaxed:
+                raise InvalidABCCodeError("trailing bytes after valid ABC payload")
 
             return ABCFile(
                 minor_version=minor_version,
@@ -1207,9 +1217,10 @@ class ABCReader:
 
         for script in scripts:
             if script.init_method >= len(methods):
-                raise InvalidABCCodeError(
-                    f"script init method index out of range: {script.init_method}, max: {len(methods) - 1}"
-                )
+                if not self._verify_relaxed:
+                    raise InvalidABCCodeError(
+                        f"script init method index out of range: {script.init_method}, max: {len(methods) - 1}"
+                    )
 
         for instance in instances:
             if validate_metadata_indices:
@@ -1297,7 +1308,9 @@ class ABCReader:
         for body in method_bodies:
             method_index = body.method
             if method_index >= len(methods):
-                raise InvalidABCCodeError(f"Method body references invalid method index: {method_index}")
+                if not self._verify_relaxed:
+                    raise InvalidABCCodeError(f"Method body references invalid method index: {method_index}")
+                continue
 
             method_info = methods[method_index]
             if method_info.flags & MethodFlags.NATIVE:

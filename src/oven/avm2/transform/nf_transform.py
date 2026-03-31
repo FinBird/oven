@@ -22,8 +22,10 @@ class NFNormalize(Transform, NodeVisitor):
             nf.normalize_hierarchy()
             self.nf = nf
 
-            self._remove_useless_return()
             self.visit(nf)
+
+            # After all transformations, remove trailing return_void if it's still trailing
+            self._remove_useless_return()
 
             if len(args) == 1:
                 return self.nf
@@ -33,9 +35,58 @@ class NFNormalize(Transform, NodeVisitor):
 
         return args
 
+    def _is_terminating(self, node: Node) -> bool:
+        """Check if a node is terminating."""
+        if not isinstance(node, Node):
+            return False
+        if node.type in {"return_void", "return_value", "break", "continue", "throw"}:
+            return True
+        if node.type == "if":
+            return self._is_terminating_if(node)
+        if node.type == "begin":
+            return self._is_terminating_block(node)
+        return False
+
+    def _is_terminating_if(self, node: Node) -> bool:
+        """Check if an if node is terminating (both branches terminate)."""
+        if node.type != "if" or len(node.children) < 3:
+            return False
+        then_block = node.children[1]
+        else_block = node.children[2]
+        return self._is_terminating_block(then_block) and self._is_terminating_block(else_block)
+
+    def _is_terminating_block(self, node: Node) -> bool:
+        """Check if a block (begin node) is terminating."""
+        if not isinstance(node, Node):
+            return False
+        if node.type == "begin":
+            # For a begin block, we consider it terminating if any child is terminating
+            # (because after a terminating node, the rest is dead code)
+            for child in node.children:
+                if isinstance(child, Node) and self._is_terminating(child):
+                    return True
+            return False
+        else:
+            return self._is_terminating(node)
+
     def _remove_useless_return(self) -> None:
-        if self.nf.children and isinstance(self.nf.children[-1], Node):
-            if self.nf.children[-1].type == "return_void":
+        if not self.nf.children:
+            return
+        has_switch_labels = any((isinstance(child, Node) and child.type in {'case', 'default'} for child in self.nf.children))
+        if has_switch_labels:
+            return
+        dead_types = {'return_void', 'return_value', 'break', 'continue', 'throw'}
+        first_terminal = -1
+        for i, child in enumerate(self.nf.children):
+            if isinstance(child, Node) and child.type in dead_types:
+                first_terminal = i
+                break
+        if first_terminal != -1:
+            del self.nf.children[first_terminal + 1:]
+
+        if self.nf.children:
+            last = self.nf.children[-1]
+            if isinstance(last, Node) and last.type == 'return_void':
                 self.nf.children.pop()
 
     def on_nop(self, node: Node) -> None:
@@ -45,24 +96,25 @@ class NFNormalize(Transform, NodeVisitor):
     # Local Increment/Decrement Optimization
     # =========================================================================
 
-    LocalIncDecMatcher = m.seq(
-        m.one_of(
-            m.of("set_slot", m.capture("index"), m.capture("scope")),
-            m.of("set_local", m.capture("index")),
-        ),
-        m.one_of(
-            m.of("convert", m.any, m.capture("inner")),
-            m.of("coerce", "any", m.capture("inner")),
-            m.capture("inner")
-        )
+    LocalIncDecMatcher = m.one_of(
+        m.of("set_slot", m.capture("index"), m.capture("scope"), m.capture("inner")),
+        m.of("set_local", m.capture("index"), m.capture("inner")),
     )
 
-    LocalIncDecInnerMatcher = m.seq(
-        m.capture("operator"),
-        m.one_of(
-            m.of("convert", m.any, m.capture("getter")),
-            m.capture("getter")
-        )
+    LocalIncDecInnerMatcher = m.one_of(
+        # Pattern for add/subtract: add(getter, 1) or subtract(getter, 1)
+        m.of("add", m.capture("getter"), m.capture("operand")),
+        m.of("subtract", m.capture("getter"), m.capture("operand")),
+        m.of("add_i", m.capture("getter"), m.capture("operand")),
+        m.of("subtract_i", m.capture("getter"), m.capture("operand")),
+        # Pattern for pre/post increment/decrement: pre_increment(getter) etc.
+        m.of("pre_increment", m.capture("getter")),
+        m.of("post_increment", m.capture("getter")),
+        m.of("pre_decrement", m.capture("getter")),
+        m.of("post_decrement", m.capture("getter")),
+        # Pattern for coerce/convert wrapping add/subtract: coerce(type, add(getter, 1))
+        m.of("coerce", m.capture("coerce_type"), m.capture("inner")),
+        m.of("convert", m.capture("convert_type"), m.capture("inner")),
     )
 
     LocalIncDecGetterMatcher = m.one_of(
@@ -72,32 +124,51 @@ class NFNormalize(Transform, NodeVisitor):
 
     IncDecOperators = {
         "pre_increment", "post_increment",
-        "pre_decrement", "post_decrement"
+        "pre_decrement", "post_decrement",
+        "add", "subtract", "add_i", "subtract_i"
+    }
+
+    IncDecOperatorMapping = {
+        "add": "pre_increment_local",
+        "subtract": "pre_decrement_local",
+        "add_i": "pre_increment_local",
+        "subtract_i": "pre_decrement_local",
     }
 
     def _extract_local_incdec_captures(self, node: Node) -> dict[str, Any] | None:
-        captures: dict[str, Any] = {}
-        if not self.LocalIncDecMatcher.match(node.children, captures):
+        outer_captures: dict[str, Any] = {}
+        if not self.LocalIncDecMatcher.match(node, outer_captures):
             return None
 
-        inner = captures.get("inner")
+        inner = outer_captures.get("inner")
         if not isinstance(inner, Node):
             return None
 
-        if not self.LocalIncDecInnerMatcher.match(inner.children, captures):
+        inner_captures: dict[str, Any] = {}
+        if not self.LocalIncDecInnerMatcher.match(inner, inner_captures):
             return None
 
-        operator = captures.get("operator")
-        if isinstance(operator, Node):
-            operator_type = operator.type
-        else:
-            operator_type = str(operator)
+        operator_type = inner.type
 
-        if operator_type not in self.IncDecOperators:
+        # Handle coerce/convert wrappers
+        if operator_type in {"coerce", "convert"}:
+            # The actual operator is inside the inner node
+            inner_inner = inner_captures.get("inner")
+            if isinstance(inner_inner, Node) and inner_inner.type in self.IncDecOperators:
+                operator_type = inner_inner.type
+                # Extract getter and operand from the inner-inner node
+                inner_inner_captures: dict[str, Any] = {}
+                if self.LocalIncDecInnerMatcher.match(inner_inner, inner_inner_captures):
+                    inner_captures.update(inner_inner_captures)
+            else:
+                return None
+        elif operator_type not in self.IncDecOperators:
             return None
 
-        captures["operator_type"] = operator_type
-        return captures
+        # Merge captures - inner_captures first, then outer_captures to preserve index/scope for backrefs
+        result = {**inner_captures, **outer_captures}
+        result["operator_type"] = operator_type
+        return result
 
     def on_set_local(self, node: Node) -> None:
         if len(node.children) >= 2:
@@ -117,32 +188,39 @@ class NFNormalize(Transform, NodeVisitor):
         if (isinstance(getter, Node) and
                 self.LocalIncDecGetterMatcher.match(getter, captures)):
 
-            target_type = f"{operator_type}_slot" if "scope" in captures else f"{operator_type}_local"
+            # Handle add/subtract operators - check operand value
+            if operator_type in {"add", "subtract", "add_i", "subtract_i"}:
+                operand = captures.get("operand")
+                operand_val = self._index_value(operand)
+                
+                # Also check if operand is an integer node
+                if operand_val is None and isinstance(operand, Node) and operand.type == "integer":
+                    operand_val = self._index_value(operand.children[0]) if operand.children else None
+                
+                # For add/subtract, check if operand is 1 or -1
+                if operand_val == 1:
+                    if operator_type in {"add", "add_i"}:
+                        target_type = "pre_increment_local"
+                    else:  # subtract or subtract_i
+                        target_type = "pre_decrement_local"
+                elif operand_val == -1:
+                    if operator_type in {"add", "add_i"}:
+                        target_type = "pre_decrement_local"
+                    else:  # subtract or subtract_i
+                        target_type = "pre_increment_local"
+                else:
+                    # Not a simple increment/decrement
+                    return
+            else:
+                # Pre/post increment/decrement operators
+                target_type = f"{operator_type}_slot" if "scope" in captures else f"{operator_type}_local"
 
             children = [captures["index"]]
             if "scope" in captures:
                 children.append(captures["scope"])
 
             node.update(node_type=target_type, children=children)
-        else:
-            # Fallback for non-canonical inc/dec form:
-            # rebuild as add(set_local(..., getter), integer(1)).
-            set_node_type = node.type  # set_local or set_slot
-            # Build children for the nested set node: [index, (scope?), getter].
-
-            set_children = [captures["index"]]
-            if "scope" in captures:
-                set_children.append(captures["scope"])
-
-            # Append the value being assigned.
-            set_children.append(getter)
-
-            new_set_node = Node(set_node_type, children=set_children)
-
-            node.update(node_type="add", children=[
-                new_set_node,
-                Node("integer", children=[1])
-            ])
+        # If getter doesn't match setter, leave the node unchanged
 
     # Alias on_set_slot to use the same logic
     on_set_slot = on_set_local
@@ -618,9 +696,6 @@ class NFNormalize(Transform, NodeVisitor):
         parent = parent or node.parent
         enclosure = enclosure or node
 
-        if not parent:
-            return
-
         # 1. Remove superfluous continue at end of body
         # node.children: [*whatever, code]
         if node.children:
@@ -710,47 +785,42 @@ class NFNormalize(Transform, NodeVisitor):
     # =========================================================================
 
     def on_begin(self, node: Node) -> None:
+        # 0. First, recursively visit all children to handle nested structures
+        for child in list(node.children):
+            if isinstance(child, Node):
+                self.visit(child)
+
         # 1. Fold (with) blocks
-        # Find index of :push_with
-        with_begin = -1
-        for i, child in enumerate(node.children):
+        # Use a stack to match push_with and pop_scope
+        stack = []
+        i = 0
+        while i < len(node.children):
+            child = node.children[i]
             if isinstance(child, Node) and child.type == "push_with":
-                with_begin = i
-                break
-
-        with_end = -1
-
-        if with_begin != -1:
-            nesting = 0
-            # iterate from with_begin to end
-            for i in range(with_begin, len(node.children)):
-                child = node.children[i]
-                if isinstance(child, Node):
-                    if child.type in ("push_with", "push_scope"):
-                        nesting += 1
-                    elif child.type == "pop_scope":
-                        nesting -= 1
-                        if nesting == 0:
-                            with_end = i
-                            break
-
-            if nesting == 0 and with_end != -1:
-                # Ruby: with_scope, = node.children[with_begin].children
-                with_stmt = node.children[with_begin]
-                with_scope = with_stmt.children[0] if with_stmt.children else None
-
-                # Ruby: slice (with_begin + 1)..(with_end - 1)
-                # Python slice is [start : end] (exclusive)
-                with_content = node.children[with_begin + 1: with_end]
-
-                with_node = Node("with", children=[
-                    with_scope,
-                    Node("begin", children=with_content)
-                ])
-
-                # Replace range [with_begin .. with_end] with new node
-                # Python slice assignment: node.children[start : end+1]
-                node.children[with_begin: with_end + 1] = [with_node]
+                stack.append(i)
+                i += 1
+            elif isinstance(child, Node) and child.type == "pop_scope":
+                if stack:
+                    with_begin = stack.pop()
+                    with_end = i
+                    # Extract with_scope from push_with node
+                    with_stmt = node.children[with_begin]
+                    with_scope = with_stmt.children[0] if with_stmt.children else None
+                    # Extract content between push_with and pop_scope
+                    with_content = node.children[with_begin + 1: with_end]
+                    # Create with node
+                    with_node = Node("with", children=[
+                        with_scope,
+                        Node("begin", children=with_content)
+                    ])
+                    # Replace the range with the with node
+                    node.children[with_begin: with_end + 1] = [with_node]
+                    # Reset i to with_begin (now the new with node)
+                    i = with_begin
+                else:
+                    i += 1
+            else:
+                i += 1
 
         # 2. Remove obviously dead code
         # Switch bodies are represented as a flat begin-block that interleaves
@@ -763,34 +833,41 @@ class NFNormalize(Transform, NodeVisitor):
         if has_switch_labels:
             return
 
-        dead_types = {"return_void", "return_value", "break", "continue", "throw"}
-        first_ctn = -1
+        # Find the first terminating node, considering if nodes that terminate
+        first_terminating_index = -1
         for i, child in enumerate(node.children):
-            if isinstance(child, Node) and child.type in dead_types:
-                first_ctn = i
-                break
-
-        if first_ctn != -1:
-            # Remove everything after the flow control instruction
-            del node.children[first_ctn + 1:]
+            if isinstance(child, Node):
+                if self._is_terminating(child):
+                    first_terminating_index = i
+                    break
+        
+        if first_terminating_index != -1:
+            # Remove everything after the first terminating node
+            del node.children[first_terminating_index + 1:]
 
     # =========================================================================
     # Switch Optimization
     # =========================================================================
 
-    OptimizedSwitchSeed = m.of("ternary",
-                               m.of("===", m.capture("case_value"), m.of("get_local", m.capture("local_index"))),
-                               m.of("integer", m.capture("case_index")),
-                               m.capture("nested")
-                               )
+    _EqMatchSeed = m.one_of(
+        m.of('===', m.of('get_local', m.capture('local_index')), m.capture('case_value')),
+        m.of('===', m.capture('case_value'), m.of('get_local', m.capture('local_index'))),
+        m.of('==', m.of('get_local', m.capture('local_index')), m.capture('case_value')),
+        m.of('==', m.capture('case_value'), m.of('get_local', m.capture('local_index')))
+    )
+
+    OptimizedSwitchSeed = m.of('ternary', _EqMatchSeed, m.of('integer', m.capture('case_index')), m.capture('nested'))
+
+    _EqMatchNested = m.one_of(
+        m.of('===', m.capture('case_value'), m.of('get_local', m.backref('local_index'))),
+        m.of('===', m.of('get_local', m.backref('local_index')), m.capture('case_value')),
+        m.of('==', m.capture('case_value'), m.of('get_local', m.backref('local_index'))),
+        m.of('==', m.of('get_local', m.backref('local_index')), m.capture('case_value'))
+    )
 
     OptimizedSwitchNested = m.one_of(
-        m.of("ternary",
-             m.of("===", m.capture("case_value"), m.of("get_local", m.backref("local_index"))),
-             m.of("integer", m.capture("case_index")),
-             m.capture("nested")
-             ),
-        m.of("integer", m.capture("default_index"))
+        m.of('ternary', _EqMatchNested, m.of('integer', m.capture('case_index')), m.capture('nested')),
+        m.of('integer', m.capture('default_index'))
     )
 
     NumericCase = m.of("case", m.of("integer", m.capture("index")))
@@ -800,7 +877,7 @@ class NFNormalize(Transform, NodeVisitor):
             return
 
         labels = {"case", "default"}
-        terminals = {"break", "continue", "return_value", "return_void", "throw"}
+        terminals = {"break", "continue", "return_value", "throw"}
         children = body.children
         if not children:
             return

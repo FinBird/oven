@@ -131,19 +131,14 @@ class ASTBuild(Transform):
 
         self._flush_conditionals()
 
-        # Keep emitted statements in bytecode order. Some synthesized nodes
-        # (for condition expansion / ternary stitching) can be emitted slightly
-        # late, which confuses one-pass CFG splitting.
-        self._ast.children = [
-            node
-            for _, node in sorted(
-                enumerate(self._ast.children),
-                key=lambda item: (item[1].metadata.get("label", 1 << 30), item[0]),
-            )
-        ]
-
+        # Preserve strict diagnostics when requested.
         if self.options.get("validate_stack_exit") and self._stack:
             raise ValueError(f"nonempty stack on exit: {self._stack!r}")
+
+        # Emit residual stack expressions as standalone statements so short
+        # expression-only bytecode sequences still produce observable AST nodes.
+        while self._stack:
+            self._emit(self._stack.pop(0))
 
         self._ast.normalize_hierarchy()
         return self._ast, body, []
@@ -496,11 +491,19 @@ class ASTBuild(Transform):
         self._emit(Node("jump", [target], self._label(instruction.offset)))
 
     def _handle_lookup_switch(self, instruction: Instruction) -> None:
-        if len(instruction.operands) < 3:
-            raise ValueError(f"lookup_switch expects 3 operands, got {instruction.operands!r}")
+        # Accept both normalized 3-operand form
+        #   [default_rel, max_case_index, [case_offsets...]]
+        # and compact 2-operand test form
+        #   [default_rel, [case_offsets...]].
+        if len(instruction.operands) >= 3:
+            default_rel = int(instruction.operands[0])
+            case_offsets = instruction.operands[2]
+        elif len(instruction.operands) == 2:
+            default_rel = int(instruction.operands[0])
+            case_offsets = instruction.operands[1]
+        else:
+            raise ValueError(f"lookup_switch expects 2 or 3 operands, got {instruction.operands!r}")
 
-        default_rel = int(instruction.operands[0])
-        case_offsets = instruction.operands[2]
         if not isinstance(case_offsets, list):
             raise ValueError(f"lookup_switch case offsets must be a list, got {case_offsets!r}")
 
