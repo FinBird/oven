@@ -16,7 +16,7 @@ CTIValue: TypeAlias = object
 
 @dataclass(slots=True)
 class CFGNode:
-    cfg: CFG
+    cfg: CFG = field(default=None)
     label: Label = None
     instructions: list[InstructionValue] = field(default_factory=list)
     cti: CTIValue | None = None  # Control Transfer Instruction
@@ -25,21 +25,37 @@ class CFGNode:
 
     @property
     def targets(self) -> tuple[CFGNode, ...]:
+        if self.cfg is None:
+            return ()
         return tuple(self.cfg.find_node(l) for l in self.target_labels)
 
     @property
     def sources(self) -> list[CFGNode]:
+        if self.cfg is None:
+            return []
         return self.cfg.sources_for(self)
 
     @property
     def exception(self) -> CFGNode | None:
+        if self.cfg is None:
+            return None
         return self.cfg.find_node(self.exception_label) if self.exception_label is not None else None
 
     @property
     def exception_sources(self) -> list[CFGNode]:
+        if self.cfg is None:
+            return []
         return self.cfg.sources_for(self, exceptions=True)
 
+    def add_target(self, target: CFGNode) -> None:
+        """Add a target node to this node's target labels."""
+        if target.label is None:
+            raise ValueError("Cannot add target with None label")
+        self.target_labels.append(target.label)
+
     def exits(self) -> bool:
+        if self.cfg is None:
+            return False
         return self.targets == (self.cfg.exit,)
 
     def __hash__(self) -> int:
@@ -80,11 +96,19 @@ class CFG:
             return node
         raise KeyError(f"CFG node {label} not found")
 
-    def add_node(self, label: Label = None, insns: list[InstructionValue] | None = None) -> CFGNode:
-        node = CFGNode(self, label=label, instructions=list(insns) if insns is not None else [])
+    def add_node(self, label: Label | CFGNode = None, insns: list[InstructionValue] | None = None) -> CFGNode:
+        # Backward-compatible path: accept an already constructed CFGNode.
+        if isinstance(label, CFGNode):
+            if insns is not None:
+                raise ValueError("insns must be None when adding an existing CFGNode")
+            node = label
+            node.cfg = self
+        else:
+            node = CFGNode(self, label=label, instructions=list(insns) if insns is not None else [])
+
         self.nodes.add(node)
-        if label is not None:
-            self._label_map[label] = node
+        if node.label is not None:
+            self._label_map[node.label] = node
         self.flush_caches()
         return node
 

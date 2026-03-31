@@ -46,7 +46,11 @@ class CFGReduce(Transform):
             if break_target is not None and block == break_target:
                 nodes.append(Node(self.dialect.ast_break))
                 break
-            if continue_target is not None and block == continue_target and stop != continue_target:
+            if (
+                continue_target is not None
+                and block == continue_target
+                and stop != continue_target
+            ):
                 nodes.append(Node(self.dialect.ast_continue))
                 break
 
@@ -63,8 +67,12 @@ class CFGReduce(Transform):
             exc_label = block.exception_label
             if exc_label is not None and exc_label not in self._exc_processed:
                 try_node, next_block = self._reduce_try_catch_finally(
-                    block, exc_label, barriers, loop_nodes,
-                    break_target, continue_target,
+                    block,
+                    exc_label,
+                    barriers,
+                    loop_nodes,
+                    break_target,
+                    continue_target,
                 )
                 nodes.append(try_node)
                 block = next_block
@@ -104,7 +112,11 @@ class CFGReduce(Transform):
                         else:
                             block = nxt
                         continue
-                    if target_kind == "outside" and break_target is not None and nxt != self._cfg.exit:
+                    if (
+                        target_kind == "outside"
+                        and break_target is not None
+                        and nxt != self._cfg.exit
+                    ):
                         nodes.append(Node(self.dialect.ast_break))
                         block = None
                         continue
@@ -121,7 +133,11 @@ class CFGReduce(Transform):
             if (
                 cti.type == self.dialect.jump
                 and len(block.targets) == 1
-                and (loop_nodes is not None or break_target is not None or continue_target is not None)
+                and (
+                    loop_nodes is not None
+                    or break_target is not None
+                    or continue_target is not None
+                )
             ):
                 nxt = block.targets[0]
                 target_kind = self._classify_loop_target(
@@ -141,7 +157,11 @@ class CFGReduce(Transform):
                     else:
                         block = nxt
                     continue
-                if target_kind == "outside" and break_target is not None and nxt != self._cfg.exit:
+                if (
+                    target_kind == "outside"
+                    and break_target is not None
+                    and nxt != self._cfg.exit
+                ):
                     nodes.append(Node(self.dialect.ast_break))
                     block = None
                     continue
@@ -255,12 +275,17 @@ class CFGReduce(Transform):
         cond = self._condition_from_jump_if(header)
 
         if kind0 in controls and kind1 == "inside":
-            return Node(self.dialect.ast_if, [cond, Node(self.dialect.ast_begin, [Node(kind0)])]), t1
+            return Node(
+                self.dialect.ast_if, [cond, Node(self.dialect.ast_begin, [Node(kind0)])]
+            ), t1
 
         if kind1 in controls and kind0 == "inside":
             return Node(
                 self.dialect.ast_if,
-                [Node(self.dialect.ast_not, [cond]), Node(self.dialect.ast_begin, [Node(kind1)])],
+                [
+                    Node(self.dialect.ast_not, [cond]),
+                    Node(self.dialect.ast_begin, [Node(kind1)]),
+                ],
             ), t0
 
         if kind0 in controls and kind1 in controls:
@@ -298,7 +323,9 @@ class CFGReduce(Transform):
             return cond
         return Node(self.dialect.ast_not, [cond])
 
-    def _forward_distances(self, start: CFGNode, max_steps: int = 100000) -> dict[CFGNode, int]:
+    def _forward_distances(
+        self, start: CFGNode, max_steps: int = 100000
+    ) -> dict[CFGNode, int]:
         dist: dict[CFGNode, int] = {start: 0}
         queue: list[CFGNode] = [start]
         steps = 0
@@ -313,7 +340,10 @@ class CFGReduce(Transform):
         return dist
 
     def _find_merge_node(self, left: CFGNode, right: CFGNode) -> CFGNode | None:
-        post = self._cfg.postdominators
+        cfg = getattr(self, "_cfg", None) or left.cfg or right.cfg
+        if cfg is None:
+            return None
+        post = cfg.postdominators
         left_pd = post.get(left, set())
         right_pd = post.get(right, set())
         common = left_pd & right_pd
@@ -329,7 +359,7 @@ class CFGReduce(Transform):
             dist = self._forward_distances(productive)
             productive_candidates: list[tuple[int, str, CFGNode]] = []
             for cand, steps in dist.items():
-                if cand in {productive, self._cfg.exit}:
+                if cand in {productive, cfg.exit}:
                     continue
                 productive_candidates.append((steps, str(cand.label), cand))
             if productive_candidates:
@@ -344,8 +374,10 @@ class CFGReduce(Transform):
                 continue
             d1 = dl[cand]
             d2 = dr[cand]
-            prefer_non_exit = 0 if cand != self._cfg.exit else 1
-            ranked.append((prefer_non_exit, max(d1, d2), d1 + d2, str(cand.label), cand))
+            prefer_non_exit = 0 if cand != cfg.exit else 1
+            ranked.append(
+                (prefer_non_exit, max(d1, d2), d1 + d2, str(cand.label), cand)
+            )
 
         if ranked:
             ranked.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
@@ -478,7 +510,9 @@ class CFGReduce(Transform):
                     break_target=break_target,
                     continue_target=continue_target,
                 )
-                return Node(self.dialect.ast_if, [Node(self.dialect.ast_not, [cond]), then_ast]), merge
+                return Node(
+                    self.dialect.ast_if, [Node(self.dialect.ast_not, [cond]), then_ast]
+                ), merge
 
             then_ast = self._reduce_from(
                 t_then,
@@ -500,7 +534,9 @@ class CFGReduce(Transform):
             if not else_ast.children:
                 return Node(self.dialect.ast_if, [cond, then_ast]), merge
             if not then_ast.children:
-                return Node(self.dialect.ast_if, [Node(self.dialect.ast_not, [cond]), else_ast]), merge
+                return Node(
+                    self.dialect.ast_if, [Node(self.dialect.ast_not, [cond]), else_ast]
+                ), merge
             return Node(self.dialect.ast_if, [cond, then_ast, else_ast]), merge
 
         return None, None
@@ -518,8 +554,7 @@ class CFGReduce(Transform):
             if cti_type in terminating_cti_types:
                 continue
             has_nontrivial_successor = any(
-                node != target and node != self._cfg.exit
-                for node in dist_map.keys()
+                node != target and node != self._cfg.exit for node in dist_map.keys()
             )
             if has_nontrivial_successor:
                 productive_maps.append(dist_map)
@@ -553,7 +588,11 @@ class CFGReduce(Transform):
             if reach_counts:
                 max_reach = max(reach_counts.values())
                 if max_reach >= 2:
-                    candidates = [node for node, count in reach_counts.items() if count == max_reach]
+                    candidates = [
+                        node
+                        for node, count in reach_counts.items()
+                        if count == max_reach
+                    ]
 
         # 若仍无候选，但严格交集含 exit，则退回 exit。
         if not candidates:
@@ -583,9 +622,8 @@ class CFGReduce(Transform):
         if isinstance(cti, Node):
             if len(cti.children) == 1 and isinstance(cti.children[0], Node):
                 expr = cti.children[0]
-            elif (
-                len(cti.children) > self.dialect.switch_expr_index
-                and isinstance(cti.children[self.dialect.switch_expr_index], Node)
+            elif len(cti.children) > self.dialect.switch_expr_index and isinstance(
+                cti.children[self.dialect.switch_expr_index], Node
             ):
                 expr = cti.children[self.dialect.switch_expr_index]
 
@@ -614,7 +652,9 @@ class CFGReduce(Transform):
                     "switch_target_label": target.label,
                 }
                 if label_index == 0:
-                    body_children.append(Node(self.dialect.ast_default, metadata=label_meta))
+                    body_children.append(
+                        Node(self.dialect.ast_default, metadata=label_meta)
+                    )
                 else:
                     body_children.append(
                         Node(
@@ -640,7 +680,11 @@ class CFGReduce(Transform):
             if case_ast.children and merge is not None:
                 # 若 case 末尾是显式 jump 到 switch merge，将其规约为 break。
                 last_stmt = case_ast.children[-1]
-                if isinstance(last_stmt, Node) and last_stmt.type == self.dialect.jump and last_stmt.children:
+                if (
+                    isinstance(last_stmt, Node)
+                    and last_stmt.type == self.dialect.jump
+                    and last_stmt.children
+                ):
                     jump_label = last_stmt.children[0]
                     jump_target: CFGNode | None
                     if isinstance(jump_label, CFGNode):
@@ -651,7 +695,9 @@ class CFGReduce(Transform):
                         except Exception:
                             jump_target = None
                     if jump_target == merge:
-                        case_ast.children = case_ast.children[:-1] + [Node(self.dialect.ast_break)]
+                        case_ast.children = case_ast.children[:-1] + [
+                            Node(self.dialect.ast_break)
+                        ]
 
             if case_ast.children:
                 body_children.extend(case_ast.children)
@@ -662,12 +708,13 @@ class CFGReduce(Transform):
                 self.dialect.jump,
             }
             has_case_terminator = any(
-                isinstance(node, Node)
-                and node.type in terminators
+                isinstance(node, Node) and node.type in terminators
                 for node in case_ast.descendants()
             )
             # 对直达 merge 的分支，或缺失终止语义的分支，补显式 break，防止 fallthrough。
-            if (merge is not None and target == merge) or (not has_case_terminator and target != self._cfg.exit):
+            if (merge is not None and target == merge) or (
+                not has_case_terminator and target != self._cfg.exit
+            ):
                 body_children.append(Node(self.dialect.ast_break))
 
         self._visited = base_visited | switch_consumed
@@ -681,6 +728,7 @@ class CFGReduce(Transform):
             [expr, Node(self.dialect.ast_begin, body_children)],
             metadata=switch_metadata,
         ), merge
+
     def _reduce_try_catch_finally(
         self,
         start_block: CFGNode,
@@ -702,10 +750,25 @@ class CFGReduce(Transform):
         for insn in dispatch_node.instructions:
             if isinstance(insn, Node) and insn.type == self.dialect.exception_dispatch:
                 for catch_child in insn.children:
-                    if isinstance(catch_child, Node) and catch_child.type == self.dialect.catch:
-                        exc_type = catch_child.children[0] if len(catch_child.children) > 0 else None
-                        var_name = catch_child.children[1] if len(catch_child.children) > 1 else None
-                        target_off = catch_child.children[2] if len(catch_child.children) > 2 else None
+                    if (
+                        isinstance(catch_child, Node)
+                        and catch_child.type == self.dialect.catch
+                    ):
+                        exc_type = (
+                            catch_child.children[0]
+                            if len(catch_child.children) > 0
+                            else None
+                        )
+                        var_name = (
+                            catch_child.children[1]
+                            if len(catch_child.children) > 1
+                            else None
+                        )
+                        target_off = (
+                            catch_child.children[2]
+                            if len(catch_child.children) > 2
+                            else None
+                        )
                         catch_defs.append((exc_type, var_name, target_off))
 
         if not catch_defs:
@@ -719,8 +782,11 @@ class CFGReduce(Transform):
         try_barriers.add(dispatch_node)
 
         try_ast = self._reduce_from(
-            start_block, stop=None, barriers=try_barriers,
-            loop_nodes=loop_nodes, break_target=break_target,
+            start_block,
+            stop=None,
+            barriers=try_barriers,
+            loop_nodes=loop_nodes,
+            break_target=break_target,
             continue_target=continue_target,
         )
 
@@ -743,8 +809,13 @@ class CFGReduce(Transform):
                 first_catch_entry = None
             if first_catch_entry is not None:
                 merge = self._find_merge_node(try_exit_nodes[0], first_catch_entry)
-                if merge is not None and merge not in set(try_exit_nodes) | {first_catch_entry, dispatch_node}:
-                    finally_block = self._detect_finally_block(merge, try_region, dispatch_node)
+                if merge is not None and merge not in set(try_exit_nodes) | {
+                    first_catch_entry,
+                    dispatch_node,
+                }:
+                    finally_block = self._detect_finally_block(
+                        merge, try_region, dispatch_node
+                    )
 
         for exc_type, var_name, target_off in catch_defs:
             try:
@@ -757,24 +828,34 @@ class CFGReduce(Transform):
             prev_suppress = getattr(self, "_suppress_exc", False)
             self._suppress_exc = True
             catch_body = self._reduce_from(
-                catch_entry, stop=catch_stop, barriers=barriers,
-                loop_nodes=loop_nodes, break_target=break_target,
+                catch_entry,
+                stop=catch_stop,
+                barriers=barriers,
+                loop_nodes=loop_nodes,
+                break_target=break_target,
                 continue_target=continue_target,
             )
             self._suppress_exc = prev_suppress
 
             type_str = str(exc_type) if exc_type is not None else "*"
             name_str = str(var_name) if var_name is not None else "_e_"
-            catch_asts.append(Node(self.dialect.ast_catch, [type_str, name_str, catch_body]))
+            catch_asts.append(
+                Node(self.dialect.ast_catch, [type_str, name_str, catch_body])
+            )
 
             if continuation is None and finally_block is None:
-                continuation = self._find_finally_merge_point(try_region, catch_entry, dispatch_node)
+                continuation = self._find_finally_merge_point(
+                    try_region, catch_entry, dispatch_node
+                )
 
         if finally_block is not None:
             self._visited.discard(finally_block)
             finally_body = self._reduce_from(
-                finally_block, stop=None, barriers=barriers,
-                loop_nodes=loop_nodes, break_target=break_target,
+                finally_block,
+                stop=None,
+                barriers=barriers,
+                loop_nodes=loop_nodes,
+                break_target=break_target,
                 continue_target=continue_target,
             )
             finally_ast = Node(self.dialect.ast_finally, [finally_body])
@@ -825,4 +906,3 @@ class CFGReduce(Transform):
                 continue
             return tgt
         return None
-

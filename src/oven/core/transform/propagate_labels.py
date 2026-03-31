@@ -22,24 +22,63 @@ class PropagateLabels(Transform, NodeVisitor):
         if node.type == "root":
             return
 
-        min_label: int | None = None
+        # Recursively propagate labels from descendants upward
+        self._propagate_from_children(node)
+
+    def _propagate_from_children(self, node: Node) -> int | None:
+        """Recursively propagate labels from descendants up through this node.
+
+        Returns the minimum label found in descendants, or None if no labels found.
+        """
+        if not isinstance(node, Node):
+            return None
+
+        all_found_labels: list[int] = []
         for child in node.children:
             if not isinstance(child, Node):
                 continue
-            label = child.metadata.get("label")
-            if label is None:
-                continue
-            if min_label is None or label < min_label:
-                min_label = label
-            if child.metadata:
-                child.metadata.pop("label", None)
 
-        existing_label = node.metadata.get("label")
-        if existing_label in self._target_labels:
-            return
+            child_label = self._propagate_from_children(child)
+            if child_label is not None:
+                all_found_labels.append(child_label)
 
-        if min_label is not None:
+            child_own_label = child.metadata.get("label")
+            if isinstance(child_own_label, int):
+                all_found_labels.append(child_own_label)
+
+        if not all_found_labels:
+            return None
+
+        min_label = min(all_found_labels)
+        if node.metadata.get("label") not in self._target_labels:
             node.ensure_metadata()["label"] = min_label
+            self._remove_label_from_source(node, min_label)
+
+        return min_label
+
+    def _remove_label_from_source(self, node: Node, label: int) -> bool:
+        """Remove a propagated label from the deepest *leaf* source node.
+
+        Returns True when a label was removed.
+        """
+        # Prefer deeper descendants first.
+        for child in node.children:
+            if isinstance(child, Node) and self._remove_label_from_source(child, label):
+                return True
+
+        # Remove only from leaf nodes to preserve propagated labels on
+        # intermediate structural nodes.
+        for child in node.children:
+            if not isinstance(child, Node):
+                continue
+            if child.metadata.get("label") != label:
+                continue
+            has_node_child = any(isinstance(grand, Node) for grand in child.children)
+            if not has_node_child:
+                child.metadata.pop("label", None)
+                return True
+
+        return False
 
     def _collect_targets(self, root: Node) -> set[int]:
         targets: set[int] = set()

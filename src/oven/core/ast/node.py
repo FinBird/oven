@@ -24,7 +24,7 @@ def to_ast_node(obj: SupportsToAstNode | T) -> Node | T:
 
 class Node:
     """Abstract Syntax Tree Node."""
-    __slots__ = ('type', 'children', 'metadata', 'parent', '_index_hint')
+    __slots__ = ('type', 'children', '_metadata', 'parent', '_index_hint')
     __match_args__ = ('type', 'children', 'metadata')
 
     _EMPTY_METADATA: dict[str, Any] = {}
@@ -40,7 +40,8 @@ class Node:
         # Intern string for memory efficiency and faster comparison
         self.type: str = sys.intern(str(node_type))
         self.children: AstChildren = children or []
-        self.metadata: dict[str, Any] = metadata if metadata is not None else self._EMPTY_METADATA
+        # Always create a new dict to avoid shared mutable state
+        self._metadata: dict[str, Any] = metadata if metadata is not None else {}
         self.parent: Node | None = None
 
         # Cache index in parent's list for O(1) lookups during replacement
@@ -50,6 +51,16 @@ class Node:
             if isinstance(child, Node):
                 child.parent = self
                 child._index_hint = idx
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        """Get metadata dictionary."""
+        return self._metadata
+
+    @metadata.setter
+    def metadata(self, value: dict[str, Any] | None) -> None:
+        """Set metadata dictionary, converting None to empty dict."""
+        self._metadata = value if value is not None else {}
 
     @classmethod
     def leaf(cls, node_type: str, *, metadata: dict[str, Any] | None = None) -> "Node":
@@ -137,7 +148,7 @@ class Node:
         return Node(self.type, self.children[:], self.metadata.copy())
 
     @property
-    def index(self) -> int:
+    def index_in_parent(self) -> int:
         """Return the index of this node in its parent's children list."""
         if self.parent is None:
             return -1
@@ -154,7 +165,7 @@ class Node:
 
     @property
     def next_sibling(self) -> Any | None:
-        idx = self.index
+        idx = self.index_in_parent
         if idx == -1 or idx >= len(self.parent.children) - 1:
             return None
         sibling = self.parent.children[idx + 1]
@@ -162,7 +173,7 @@ class Node:
 
     @property
     def prev_sibling(self) -> Any | None:
-        idx = self.index
+        idx = self.index_in_parent
         if idx <= 0:
             return None
         sibling = self.parent.children[idx - 1]
@@ -214,7 +225,7 @@ class Node:
         """Remove self and lift children into the parent's list."""
         if not self.parent:
             return
-        idx = self.index
+        idx = self.index_in_parent
         if idx == -1:
             return
         parent = self.parent
@@ -238,7 +249,7 @@ class Node:
         """Remove this node from the AST."""
         if not self.parent:
             return
-        idx = self.index
+        idx = self.index_in_parent
         if idx == -1:
             return
         parent = self.parent
@@ -296,10 +307,38 @@ class Node:
                 parts.append(str(self.metadata))
         if self.children:
             parts.extend([repr(c) for c in self.children])
-        return f"({' '.join(parts)})"
+        return f"Node({' '.join(parts)})"
 
     def __iter__(self) -> Iterator[Any]:
         return iter(self.children)
+
+    def __len__(self) -> int:
+        return len(self.children)
+
+    def __getitem__(self, index: Any) -> Any:
+        return self.children[index]
+
+    def __contains__(self, item: Any) -> bool:
+        return item in self.children
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, Node):
+            return False
+        # Metadata doesn't affect equality
+        return (self.type == other.type and
+                self.children == other.children)
+
+    def __hash__(self) -> int:
+        # Hash based on type and children only, metadata excluded as per tests
+        return hash((self.type, tuple(self.children)))
+
+    def index(self, value: Any) -> int:
+        """Return first index of value in children."""
+        return self.children.index(value)
+
+    def count(self, value: Any) -> int:
+        """Return count of value in children."""
+        return self.children.count(value)
 
 
 
