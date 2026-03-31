@@ -2005,6 +2005,34 @@ class AS3Emitter:
             value = self._expr(node.children[0]) if node.children else "undefined"
             return f"{self._pad(level)}throw {value};"
 
+        if node.type == "try":
+            lines = [f"{self._pad(level)}try {{"]
+            if node.children and isinstance(node.children[0], Node):
+                lines.extend(self._emit_block(node.children[0], level + 1, inline=True))
+            lines.append(f"{self._pad(level)}}}")
+            for child in node.children[1:]:
+                if isinstance(child, Node):
+                    lines.append(self._stmt(child, level))
+            return "\n".join(lines)
+
+        if node.type == "catch":
+            exc_type = node.children[0] if len(node.children) > 0 else "*"
+            var_name = node.children[1] if len(node.children) > 1 else "_e_"
+            body = node.children[2] if len(node.children) > 2 and isinstance(node.children[2], Node) else Node("begin")
+            type_str = str(exc_type) if exc_type else "*"
+            var_str = str(var_name) if var_name else "_e_"
+            lines = [f"{self._pad(level)}catch({var_str}:{type_str}) {{"]
+            lines.extend(self._emit_block(body, level + 1, inline=True))
+            lines.append(f"{self._pad(level)}}}")
+            return "\n".join(lines)
+
+        if node.type == "finally":
+            body = node.children[0] if node.children and isinstance(node.children[0], Node) else Node("begin")
+            lines = [f"{self._pad(level)}finally {{"]
+            lines.extend(self._emit_block(body, level + 1, inline=True))
+            lines.append(f"{self._pad(level)}}}")
+            return "\n".join(lines)
+
         if node.type == "set_local":
             if len(node.children) >= 2:
                 index = node.children[0]

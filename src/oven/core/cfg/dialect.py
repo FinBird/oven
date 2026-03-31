@@ -84,6 +84,10 @@ class FlowDialect:
     ast_true: str = "true"
     ast_integer: str = "integer"
 
+    ast_try: str = "try"
+    ast_catch: str = "catch"
+    ast_finally: str = "finally"
+
     switch_source: str = "lookup_switch"
 
     @property

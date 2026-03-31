@@ -23,6 +23,7 @@ class CFGReduce(Transform):
         self._cfg = cfg
         self._visited: set[CFGNode] = set()
         self._loops = cfg.identify_loops()
+        self._exc_processed: set = set()
 
         if cfg.entry is None:
             return Node(self.dialect.ast_begin, [])
@@ -58,6 +59,18 @@ class CFGReduce(Transform):
             if barriers is not None and block in barriers:
                 break
 
+            # --- Try-Catch-Finally interception ---
+            exc_label = block.exception_label
+            if exc_label is not None and exc_label not in self._exc_processed:
+                try_node, next_block = self._reduce_try_catch_finally(
+                    block, exc_label, barriers, loop_nodes,
+                    break_target, continue_target,
+                )
+                nodes.append(try_node)
+                block = next_block
+                continue
+            # ----------------------------------------
+
             if block in self._visited:
                 # Already consumed by an enclosing control construct.
                 break
@@ -69,6 +82,11 @@ class CFGReduce(Transform):
             if cti is None:
                 if len(block.targets) == 1:
                     nxt = block.targets[0]
+                    # When walking inside an exception region, stop following
+                    # normal edges if the target has a different exception_label.
+                    if exc_label is not None and nxt.exception_label != exc_label:
+                        block = None
+                        continue
                     target_kind = self._classify_loop_target(
                         nxt,
                         loop_nodes=loop_nodes,
@@ -663,3 +681,148 @@ class CFGReduce(Transform):
             [expr, Node(self.dialect.ast_begin, body_children)],
             metadata=switch_metadata,
         ), merge
+    def _reduce_try_catch_finally(
+        self,
+        start_block: CFGNode,
+        exc_label,
+        barriers: set[CFGNode] | None,
+        loop_nodes: set[CFGNode] | None,
+        break_target: CFGNode | None,
+        continue_target: CFGNode | None,
+    ) -> tuple[Node, CFGNode | None]:
+
+        self._exc_processed.add(exc_label)
+
+        try:
+            dispatch_node = self._cfg.find_node(exc_label)
+        except KeyError:
+            return Node(self.dialect.ast_begin, []), None
+
+        catch_defs: list[tuple[object, object, object]] = []
+        for insn in dispatch_node.instructions:
+            if isinstance(insn, Node) and insn.type == self.dialect.exception_dispatch:
+                for catch_child in insn.children:
+                    if isinstance(catch_child, Node) and catch_child.type == self.dialect.catch:
+                        exc_type = catch_child.children[0] if len(catch_child.children) > 0 else None
+                        var_name = catch_child.children[1] if len(catch_child.children) > 1 else None
+                        target_off = catch_child.children[2] if len(catch_child.children) > 2 else None
+                        catch_defs.append((exc_type, var_name, target_off))
+
+        if not catch_defs:
+            return Node(self.dialect.ast_begin, []), None
+
+        try_region = {n for n in self._cfg.nodes if n.exception_label == exc_label}
+        if not try_region:
+            return Node(self.dialect.ast_begin, []), None
+
+        try_barriers = set(barriers) if barriers else set()
+        try_barriers.add(dispatch_node)
+
+        try_ast = self._reduce_from(
+            start_block, stop=None, barriers=try_barriers,
+            loop_nodes=loop_nodes, break_target=break_target,
+            continue_target=continue_target,
+        )
+
+        catch_asts: list[Node] = []
+        finally_ast: Node | None = None
+        continuation: CFGNode | None = None
+
+        finally_block: CFGNode | None = None
+        try_exit_nodes: list[CFGNode] = []
+        for node in try_region:
+            for tgt in node.targets:
+                if tgt not in try_region and tgt is not dispatch_node:
+                    try_exit_nodes.append(node)
+                    break
+        if try_exit_nodes and catch_defs:
+            first_catch_target = catch_defs[0][2]
+            try:
+                first_catch_entry = self._cfg.find_node(first_catch_target)
+            except KeyError:
+                first_catch_entry = None
+            if first_catch_entry is not None:
+                merge = self._find_merge_node(try_exit_nodes[0], first_catch_entry)
+                if merge is not None and merge not in set(try_exit_nodes) | {first_catch_entry, dispatch_node}:
+                    finally_block = self._detect_finally_block(merge, try_region, dispatch_node)
+
+        for exc_type, var_name, target_off in catch_defs:
+            try:
+                catch_entry = self._cfg.find_node(target_off)
+            except KeyError:
+                continue
+
+            catch_stop = finally_block if finally_block is not None else None
+
+            prev_suppress = getattr(self, "_suppress_exc", False)
+            self._suppress_exc = True
+            catch_body = self._reduce_from(
+                catch_entry, stop=catch_stop, barriers=barriers,
+                loop_nodes=loop_nodes, break_target=break_target,
+                continue_target=continue_target,
+            )
+            self._suppress_exc = prev_suppress
+
+            type_str = str(exc_type) if exc_type is not None else "*"
+            name_str = str(var_name) if var_name is not None else "_e_"
+            catch_asts.append(Node(self.dialect.ast_catch, [type_str, name_str, catch_body]))
+
+            if continuation is None and finally_block is None:
+                continuation = self._find_finally_merge_point(try_region, catch_entry, dispatch_node)
+
+        if finally_block is not None:
+            self._visited.discard(finally_block)
+            finally_body = self._reduce_from(
+                finally_block, stop=None, barriers=barriers,
+                loop_nodes=loop_nodes, break_target=break_target,
+                continue_target=continue_target,
+            )
+            finally_ast = Node(self.dialect.ast_finally, [finally_body])
+            continuation = self._find_post_finally_continuation(finally_block)
+
+        try_children = [try_ast] + catch_asts
+        if finally_ast is not None:
+            try_children.append(finally_ast)
+
+        return Node(self.dialect.ast_try, try_children), continuation
+
+    def _find_finally_merge_point(self, try_region, catch_entry, dispatch_node):
+        try_exit_nodes = []
+        for node in try_region:
+            for tgt in node.targets:
+                if tgt not in try_region and tgt is not dispatch_node:
+                    try_exit_nodes.append(node)
+                    break
+        if not try_exit_nodes:
+            return None
+        input_nodes = set(try_exit_nodes) | {catch_entry, dispatch_node}
+        merge = self._find_merge_node(try_exit_nodes[0], catch_entry)
+        if merge is not None and merge not in input_nodes:
+            return merge
+        return None
+
+    def _detect_finally_block(self, candidate, try_region, dispatch_node):
+        if candidate is dispatch_node or candidate in try_region:
+            return None
+        cti = candidate.cti
+        if not isinstance(cti, Node):
+            return None
+        if cti.type != self.dialect.switch_source:
+            return None
+        if len(candidate.sources) < 2:
+            return None
+        return candidate
+
+    def _find_post_finally_continuation(self, finally_block):
+        cti = finally_block.cti
+        if not isinstance(cti, Node):
+            return None
+        terminals = self.dialect.terminal_transfers
+        for tgt in finally_block.targets:
+            if isinstance(tgt.cti, Node) and tgt.cti.type in terminals:
+                continue
+            if tgt is self._cfg.exit:
+                continue
+            return tgt
+        return None
+
