@@ -5,10 +5,7 @@ from typing import Any
 from oven.core.ast import Node
 from oven.core.cfg.dialect import (
     BranchInfo,
-    CTI_COND,
-    CTI_JUMP,
-    CTI_SWITCH,
-    CTI_TERMINAL,
+    CTIKind,
     CTIHandler,
     CTIResult,
 )
@@ -37,7 +34,7 @@ class AVM2ControlFlowAdapter:
         if handler is None:
             return None
         kind, targets = handler(node)
-        return BranchInfo(kind=kind, targets=targets, keep_node=(kind != CTI_JUMP))
+        return BranchInfo(kind=kind, targets=targets, keep_node=(kind != CTIKind.JUMP))
 
     @staticmethod
     def is_label(node_type: str) -> bool:
@@ -59,7 +56,7 @@ class AVM2ControlFlowAdapter:
     def _handle_jump(node: Node) -> CTIResult:
         target = node.children[0] if node.children else None
         node.children = []
-        return CTI_JUMP, [target]
+        return CTIKind.JUMP, [target]
 
     @staticmethod
     def _handle_jump_if(node: Node) -> CTIResult:
@@ -72,7 +69,7 @@ class AVM2ControlFlowAdapter:
             cond = node.children[2]
 
         node.children = [flag, cond]
-        return CTI_COND, [target]
+        return CTIKind.COND, [target]
 
     @staticmethod
     def _handle_lookup_switch(node: Node) -> CTIResult:
@@ -84,8 +81,8 @@ class AVM2ControlFlowAdapter:
         expr = node.children[2] if len(node.children) > 2 else None
         node.children = [expr] if isinstance(expr, Node) else []
 
-        return CTI_SWITCH, [default_target, *case_targets]
+        return CTIKind.SWITCH, [default_target, *case_targets]
 
     @staticmethod
     def _handle_terminal(node: Node) -> CTIResult:
-        return CTI_TERMINAL, []
+        return CTIKind.TERMINAL, []
