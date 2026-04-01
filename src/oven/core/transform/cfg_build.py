@@ -5,7 +5,12 @@ from typing import Any, Iterable
 
 from oven.core.ast import Node
 from oven.core.cfg import CFG, CFGNode
-from oven.core.cfg.dialect import ControlFlowAdapter, DefaultControlFlowAdapter, FlowDialect
+from oven.core.cfg.dialect import (
+    CTIKind,
+    ControlFlowAdapter,
+    DefaultControlFlowAdapter,
+    FlowDialect,
+)
 from oven.core.pipeline import Transform
 
 
@@ -36,7 +41,9 @@ class CFGBuild(Transform):
             self.dialect = dialect or FlowDialect()
             self.adapter = DefaultControlFlowAdapter(self.dialect)
 
-    def transform(self, ast: Node, body: Any, finallies: Iterable[Any] | None = None) -> CFG:
+    def transform(
+        self, ast: Node, body: Any, finallies: Iterable[Any] | None = None
+    ) -> CFG:
         _ = finallies  # reserved for future compatibility
 
         self._cfg = CFG()
@@ -66,13 +73,17 @@ class CFGBuild(Transform):
 
             if self._pending_label is None:
                 self._pending_label = node.metadata.get("label")
-                self._pending_exc_block, _ = self._exception_block_for(self._pending_label)
+                self._pending_exc_block, _ = self._exception_block_for(
+                    self._pending_label
+                )
 
             node_type = node.type
             branch = get_branch_info(node)
 
             next_node = ast_children[idx + 1] if idx + 1 < total_nodes else None
-            next_label = next_node.metadata.get("label") if isinstance(next_node, Node) else None
+            next_label = (
+                next_node.metadata.get("label") if isinstance(next_node, Node) else None
+            )
 
             if branch is None:
                 if not is_nop(node_type) and not is_label(node_type):
@@ -82,18 +93,18 @@ class CFGBuild(Transform):
                     queue_append(node)
 
                 match branch.kind:
-                    case 4:  # CTI_TERMINAL
+                    case CTIKind.TERMINAL:
                         self._cutoff(None, [None])
                         continue
 
-                    case 1:  # CTI_JUMP
+                    case CTIKind.JUMP:
                         target = branch.targets[0] if branch.targets else None
                         if target is not None:
                             jumps_add(target)
                         self._cutoff(None, [target])
                         continue
 
-                    case 2:  # CTI_COND
+                    case CTIKind.COND:
                         target = branch.targets[0] if branch.targets else None
                         if target is not None:
                             jumps_add(target)
@@ -104,7 +115,7 @@ class CFGBuild(Transform):
                         self._cutoff(node, [target, next_label])
                         continue
 
-                    case 3:  # CTI_SWITCH
+                    case CTIKind.SWITCH:
                         jumps_to = list(branch.targets)
                         for target in jumps_to:
                             if target is not None:
@@ -138,7 +149,9 @@ class CFGBuild(Transform):
         for index, exc in enumerate(exceptions):
             label = f"exc_{index}"
             exc_node = self._cfg.add_node(label, [])
-            dispatch_node = Node(self.adapter.exception_dispatch_type, [], {"keep": True})
+            dispatch_node = Node(
+                self.adapter.exception_dispatch_type, [], {"keep": True}
+            )
             exc_node.instructions.append(dispatch_node)
             exc_node.cti = dispatch_node
 
@@ -161,7 +174,9 @@ class CFGBuild(Transform):
             end = int(getattr(exc, "to_offset", 0))
             self._exceptions.append(_ExcRange(start, end, exc_node))
 
-    def _exception_block_for(self, label: int | None) -> tuple[CFGNode | None, _ExcRange | None]:
+    def _exception_block_for(
+        self, label: int | None
+    ) -> tuple[CFGNode | None, _ExcRange | None]:
         if label is None:
             return None, None
         for item in self._exceptions:

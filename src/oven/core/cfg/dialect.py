@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import Callable, Protocol, TypeAlias
 
 from oven.core.ast import Node
 
-# Control-transfer instruction categories.
+
+class CTIKind(IntEnum):
+    """Control-transfer instruction categories enum."""
+
+    NONE = 0
+    JUMP = 1
+    COND = 2
+    SWITCH = 3
+    TERMINAL = 4
+
+
+# Backward-compatible constants (deprecated, use CTIKind enum instead)
 CTI_NONE: int = 0
 CTI_JUMP: int = 1
 CTI_COND: int = 2
@@ -13,7 +25,7 @@ CTI_SWITCH: int = 3
 CTI_TERMINAL: int = 4
 
 CTITarget: TypeAlias = int | str | None
-CTIResult: TypeAlias = tuple[int, list[CTITarget]]
+CTIResult: TypeAlias = tuple[CTIKind, list[CTITarget]]
 CTIHandler: TypeAlias = Callable[[Node], CTIResult]
 
 
@@ -21,7 +33,7 @@ CTIHandler: TypeAlias = Callable[[Node], CTIResult]
 class BranchInfo:
     """Normalized branch description consumed by CFG builders."""
 
-    kind: int
+    kind: CTIKind
     targets: list[CTITarget]
     keep_node: bool = True
 
@@ -29,26 +41,20 @@ class BranchInfo:
 class ControlFlowAdapter(Protocol):
     """Protocol used by `core.transform.cfg_build.CFGBuild` to decode CTI nodes."""
 
-    def get_branch_info(self, node: Node) -> BranchInfo | None:
-        ...
+    def get_branch_info(self, node: Node) -> BranchInfo | None: ...
 
     # Kept for backward compatibility in adapters/tests that still access raw handlers.
-    def get_cti_handler(self, node_type: str) -> CTIHandler | None:
-        ...
+    def get_cti_handler(self, node_type: str) -> CTIHandler | None: ...
 
-    def is_label(self, node_type: str) -> bool:
-        ...
+    def is_label(self, node_type: str) -> bool: ...
 
-    def is_nop(self, node_type: str) -> bool:
-        ...
+    def is_nop(self, node_type: str) -> bool: ...
 
     @property
-    def exception_dispatch_type(self) -> str:
-        ...
+    def exception_dispatch_type(self) -> str: ...
 
     @property
-    def catch_type(self) -> str:
-        ...
+    def catch_type(self) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,7 +123,7 @@ class DefaultControlFlowAdapter:
         if handler is None:
             return None
         kind, targets = handler(node)
-        return BranchInfo(kind=kind, targets=targets, keep_node=(kind != CTI_JUMP))
+        return BranchInfo(kind=kind, targets=targets, keep_node=(kind != CTIKind.JUMP))
 
     def is_label(self, node_type: str) -> bool:
         return node_type == self.dialect.label
@@ -134,29 +140,41 @@ class DefaultControlFlowAdapter:
         return self.dialect.catch
 
     def _handle_jump(self, node: Node) -> CTIResult:
-        target = node.children[self.dialect.jump_target_index] if len(node.children) > self.dialect.jump_target_index else None
+        target = (
+            node.children[self.dialect.jump_target_index]
+            if len(node.children) > self.dialect.jump_target_index
+            else None
+        )
         node.children = []
-        return CTI_JUMP, [target]
+        return CTIKind.JUMP, [target]
 
     def _handle_cond(self, node: Node) -> CTIResult:
         idx = self.dialect.conditional_jump_target_index
         target = node.children[idx] if 0 <= idx < len(node.children) else None
         if 0 <= idx < len(node.children):
             node.children = node.children[:idx] + node.children[idx + 1 :]
-        return CTI_COND, [target]
+        return CTIKind.COND, [target]
 
     def _handle_switch(self, node: Node) -> CTIResult:
-        default = node.children[self.dialect.switch_default_index] if len(node.children) > self.dialect.switch_default_index else None
+        default = (
+            node.children[self.dialect.switch_default_index]
+            if len(node.children) > self.dialect.switch_default_index
+            else None
+        )
         case_targets: list[CTITarget] = []
         if len(node.children) > self.dialect.switch_cases_index:
             raw_cases = node.children[self.dialect.switch_cases_index]
             if isinstance(raw_cases, list):
                 case_targets = list(raw_cases)
 
-        expr = node.children[self.dialect.switch_expr_index] if len(node.children) > self.dialect.switch_expr_index else None
+        expr = (
+            node.children[self.dialect.switch_expr_index]
+            if len(node.children) > self.dialect.switch_expr_index
+            else None
+        )
         node.children = [expr] if isinstance(expr, Node) else []
-        return CTI_SWITCH, [default, *case_targets]
+        return CTIKind.SWITCH, [default, *case_targets]
 
     @staticmethod
     def _handle_terminal(node: Node) -> CTIResult:
-        return CTI_TERMINAL, []
+        return CTIKind.TERMINAL, []
