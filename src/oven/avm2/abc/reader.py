@@ -5,9 +5,25 @@ from ..buffer import Buffer, BufferError
 from ..file import ABCFile, MetadataItem, MetadataInfo
 from ..constant_pool import ConstantPool, NamespaceInfo, NamespaceSet, Multiname
 from ..exceptions import InvalidABCCodeError
-from ..methods import MethodInfo, MethodParam, MethodBody, ExceptionInfo, DefaultValue, MethodFlags
+from ..methods import (
+    MethodInfo,
+    MethodParam,
+    MethodBody,
+    ExceptionInfo,
+    DefaultValue,
+    MethodFlags,
+)
 from ..traits import InstanceInfo, ClassInfo, ScriptInfo, Trait
-from ..enums import NamespaceKind, MultinameKind, ConstantKind, TraitKind, Instruction, Opcode, Index
+from ..enums import (
+    NamespaceKind,
+    MultinameKind,
+    ConstantKind,
+    TraitKind,
+    Instruction,
+    Opcode,
+    Index,
+    EdgeKind,
+)
 from ..instruction_formatter import InstructionFormatter
 from ..verifier import MethodBodyStackVerifier
 from .decoder import InstructionDecoder
@@ -50,7 +66,7 @@ if TYPE_CHECKING:
 
 class ABCReader:
     """ABC file reader with parser and verifier helpers."""
-    
+
     _NO_OPERAND_OPCODES = NO_OPERAND_OPCODES
     _RELATIVE_I24_OPERAND_OPCODES = RELATIVE_I24_OPERAND_OPCODES
     _S8_OPERAND_OPCODES = S8_OPERAND_OPCODES
@@ -118,14 +134,20 @@ class ABCReader:
     _ARRAY_STRING_METHOD_ARITIES = {
         "join": {1},
     }
-    _OBJECT_METHOD_NAMES = frozenset(_OBJECT_BOOL_METHOD_ARITIES) | frozenset(_OBJECT_STRING_METHOD_ARITIES)
-    _STRING_METHOD_NAMES = frozenset(_STRING_NUMBER_METHOD_ARITIES) | frozenset(_STRING_STRING_METHOD_ARITIES)
-    _ARRAY_METHOD_NAMES = frozenset(_ARRAY_NUMBER_METHOD_ARITIES) | frozenset(_ARRAY_STRING_METHOD_ARITIES)
+    _OBJECT_METHOD_NAMES = frozenset(_OBJECT_BOOL_METHOD_ARITIES) | frozenset(
+        _OBJECT_STRING_METHOD_ARITIES
+    )
+    _STRING_METHOD_NAMES = frozenset(_STRING_NUMBER_METHOD_ARITIES) | frozenset(
+        _STRING_STRING_METHOD_ARITIES
+    )
+    _ARRAY_METHOD_NAMES = frozenset(_ARRAY_NUMBER_METHOD_ARITIES) | frozenset(
+        _ARRAY_STRING_METHOD_ARITIES
+    )
     _EXCEPTION_HANDLER_ENTRY_STACK_STATE = (_STACK_TYPE_EXCEPTION,)
-    _EDGE_KIND_ENTRY = "entry"
-    _EDGE_KIND_NORMAL = "normal"
-    _EDGE_KIND_LOOKUPSWITCH = "lookupswitch"
-    _EDGE_KIND_EXCEPTION_ENTRY = "exception_entry"
+    _EDGE_KIND_ENTRY = EdgeKind.ENTRY
+    _EDGE_KIND_NORMAL = EdgeKind.NORMAL
+    _EDGE_KIND_LOOKUPSWITCH = EdgeKind.LOOKUPSWITCH
+    _EDGE_KIND_EXCEPTION_ENTRY = EdgeKind.EXCEPTION_ENTRY
     _STACK_EFFECT_OVERRIDES = STACK_EFFECT_OVERRIDES
     _STACK_STATE_BASE_ONLY_OPCODES = frozenset(
         {
@@ -195,7 +217,9 @@ class ABCReader:
         }
     )
     _LOCAL_INDEX_CANDIDATE_OPCODES = frozenset(
-        set(_LOCAL_FIXED_INDICES) | set(_LOCAL_OPERAND_INDEX_OPCODES) | {Opcode.HasNext2}
+        set(_LOCAL_FIXED_INDICES)
+        | set(_LOCAL_OPERAND_INDEX_OPCODES)
+        | {Opcode.HasNext2}
     )
     _SCOPE_INDEX_CANDIDATE_OPCODES = frozenset({Opcode.GetScopeObject})
     _LOCAL_SET_OPCODES = frozenset(
@@ -215,21 +239,29 @@ class ABCReader:
             Opcode.DecLocalI,
         }
     )
-    _LOCAL_STATE_MUTATION_OPCODES = _LOCAL_SET_OPCODES | _LOCAL_INCDEC_OPCODES | frozenset(
-        {
-            Opcode.Kill,
-            Opcode.HasNext2,
-        }
+    _LOCAL_STATE_MUTATION_OPCODES = (
+        _LOCAL_SET_OPCODES
+        | _LOCAL_INCDEC_OPCODES
+        | frozenset(
+            {
+                Opcode.Kill,
+                Opcode.HasNext2,
+            }
+        )
     )
     _SCOPE_EFFECT_PUSH_OPCODES = SCOPE_EFFECT_PUSH_OPCODES
-    _SCOPE_STATE_MUTATION_OPCODES = _SCOPE_EFFECT_PUSH_OPCODES | frozenset({Opcode.PopScope})
+    _SCOPE_STATE_MUTATION_OPCODES = _SCOPE_EFFECT_PUSH_OPCODES | frozenset(
+        {Opcode.PopScope}
+    )
     _STACK_EFFECT_BINARY_OPCODES = STACK_EFFECT_BINARY_OPCODES
     _STACK_EFFECT_UNARY_OPCODES = STACK_EFFECT_UNARY_OPCODES
     _STACK_EFFECT_GET_PROPERTY_OPCODES = STACK_EFFECT_GET_PROPERTY_OPCODES
     _STACK_EFFECT_SET_PROPERTY_OPCODES = STACK_EFFECT_SET_PROPERTY_OPCODES
     _STACK_EFFECT_GET_SCOPE_OPCODES = STACK_EFFECT_GET_SCOPE_OPCODES
     _STACK_EFFECT_FIND_PROPERTY_OPCODES = STACK_EFFECT_FIND_PROPERTY_OPCODES
-    _STACK_EFFECT_NEW_EMPTY_CONSTRUCTOR_OPCODES = STACK_EFFECT_NEW_EMPTY_CONSTRUCTOR_OPCODES
+    _STACK_EFFECT_NEW_EMPTY_CONSTRUCTOR_OPCODES = (
+        STACK_EFFECT_NEW_EMPTY_CONSTRUCTOR_OPCODES
+    )
     _STACK_EFFECT_CALL_PROPERTY_OPCODES = STACK_EFFECT_CALL_PROPERTY_OPCODES
     _STACK_EFFECT_CALL_PROPVOID_OPCODES = STACK_EFFECT_CALL_PROPVOID_OPCODES
     _STACK_EFFECT_MEMORY_LOAD_OPCODES = STACK_EFFECT_MEMORY_LOAD_OPCODES
@@ -251,14 +283,30 @@ class ABCReader:
         {Opcode.FindProperty, Opcode.FindPropStrict, Opcode.FindDef}
     )
     _STACK_STATE_ANY_RESULT_OPCODES = frozenset(
-        {Opcode.GetLex, Opcode.GetSlot, Opcode.GetGlobalSlot, Opcode.Call, Opcode.NextValue}
+        {
+            Opcode.GetLex,
+            Opcode.GetSlot,
+            Opcode.GetGlobalSlot,
+            Opcode.Call,
+            Opcode.NextValue,
+        }
     )
-    _STACK_STATE_OBJECT_RESULT_OPCODES = frozenset({Opcode.CheckFilter, Opcode.GetDescendants})
+    _STACK_STATE_OBJECT_RESULT_OPCODES = frozenset(
+        {Opcode.CheckFilter, Opcode.GetDescendants}
+    )
     _STACK_STATE_STRING_RESULT_OPCODES = frozenset({Opcode.EscXElem, Opcode.EscXAttr})
     _STACK_STATE_GETLOCAL_OPCODES = frozenset(
-        {Opcode.GetLocal, Opcode.GetLocal0, Opcode.GetLocal1, Opcode.GetLocal2, Opcode.GetLocal3}
+        {
+            Opcode.GetLocal,
+            Opcode.GetLocal0,
+            Opcode.GetLocal1,
+            Opcode.GetLocal2,
+            Opcode.GetLocal3,
+        }
     )
-    _STACK_STATE_CALL_PROPERTY_OPCODES = frozenset({Opcode.CallProperty, Opcode.CallPropLex, Opcode.CallSuper})
+    _STACK_STATE_CALL_PROPERTY_OPCODES = frozenset(
+        {Opcode.CallProperty, Opcode.CallPropLex, Opcode.CallSuper}
+    )
     _DEFAULT_PUSH_TYPE_OVERRIDES = {
         Opcode.PushByte: _STACK_TYPE_NUMBER,
         Opcode.PushShort: _STACK_TYPE_NUMBER,
@@ -359,12 +407,22 @@ class ABCReader:
         self._buffer = Buffer(data)
         self._strict_metadata_indices = strict_metadata_indices
         self._verify_stack = verify_stack
-        self._verify_stack_semantics = verify_stack if verify_stack_semantics is None else verify_stack_semantics
-        self._verify_branch_targets = verify_stack if verify_branch_targets is None else verify_branch_targets
+        self._verify_stack_semantics = (
+            verify_stack if verify_stack_semantics is None else verify_stack_semantics
+        )
+        self._verify_branch_targets = (
+            verify_stack if verify_branch_targets is None else verify_branch_targets
+        )
         self._verify_relaxed = verify_relaxed
-        self._strict_lookupswitch = (not verify_relaxed) if strict_lookupswitch is None else strict_lookupswitch
-        self._relax_join_depth = verify_relaxed if relax_join_depth is None else relax_join_depth
-        self._relax_join_types = verify_relaxed if relax_join_types is None else relax_join_types
+        self._strict_lookupswitch = (
+            (not verify_relaxed) if strict_lookupswitch is None else strict_lookupswitch
+        )
+        self._relax_join_depth = (
+            verify_relaxed if relax_join_depth is None else relax_join_depth
+        )
+        self._relax_join_types = (
+            verify_relaxed if relax_join_types is None else relax_join_types
+        )
         self._prefer_precise_any_join = prefer_precise_any_join
         self._precision_enhanced = precision_enhanced
         self._method_infos_for_verifier: tuple[MethodInfo, ...] = ()
@@ -444,15 +502,25 @@ class ABCReader:
 
         # Unsigned integer constant pool.
         uint_count = self.read_u30()
-        uints = [self.read_u32() for _ in range(uint_count - 1)] if uint_count > 0 else []
+        uints = (
+            [self.read_u32() for _ in range(uint_count - 1)] if uint_count > 0 else []
+        )
 
         # Double constant pool.
         double_count = self.read_u30()
-        doubles = [self.read_f64() for _ in range(double_count - 1)] if double_count > 0 else []
+        doubles = (
+            [self.read_f64() for _ in range(double_count - 1)]
+            if double_count > 0
+            else []
+        )
 
         # String constant pool.
         string_count = self.read_u30()
-        strings = [self.read_string() for _ in range(string_count - 1)] if string_count > 0 else []
+        strings = (
+            [self.read_string() for _ in range(string_count - 1)]
+            if string_count > 0
+            else []
+        )
 
         # Namespace constant pool.
         namespaces: List[NamespaceInfo] = []
@@ -489,7 +557,9 @@ class ABCReader:
                     ns.append(namespaces[ns_idx - 1])
                 else:
                     if not self._verify_relaxed:
-                        raise InvalidABCCodeError(f"Invalid namespace index: {ns_idx}, max: {len(namespaces)}")
+                        raise InvalidABCCodeError(
+                            f"Invalid namespace index: {ns_idx}, max: {len(namespaces)}"
+                        )
                     # Preserve arity while keeping forward progress in relaxed mode.
                     ns.append(NamespaceInfo(NamespaceKind.NAMESPACE, 0))
             namespace_sets.append(NamespaceSet(ns))
@@ -543,14 +613,18 @@ class ABCReader:
                         f"Invalid multiname namespace set index: {ns_set_idx}, max: {len(namespace_sets)}"
                     )
                 data["name"] = Index(name_idx) if name_idx > 0 else None
-                data["namespace_set"] = namespace_sets[ns_set_idx - 1] if ns_set_idx > 0 else None
+                data["namespace_set"] = (
+                    namespace_sets[ns_set_idx - 1] if ns_set_idx > 0 else None
+                )
             elif kind in (MultinameKind.MULTINAMEL, MultinameKind.MULTINAMELA):
                 ns_set_idx = self.read_u30()
                 if ns_set_idx > len(namespace_sets):
                     raise InvalidABCCodeError(
                         f"Invalid multiname namespace set index: {ns_set_idx}, max: {len(namespace_sets)}"
                     )
-                data["namespace_set"] = namespace_sets[ns_set_idx - 1] if ns_set_idx > 0 else None
+                data["namespace_set"] = (
+                    namespace_sets[ns_set_idx - 1] if ns_set_idx > 0 else None
+                )
             elif kind == MultinameKind.TYPENAME:
                 base_idx = self.read_u30()
                 param_count = self.read_u30()
@@ -574,7 +648,7 @@ class ABCReader:
             strings=strings,
             namespaces=namespaces,
             namespace_sets=namespace_sets,
-            multinames=multi_names
+            multinames=multi_names,
         )
         constant_pool.preload_resolved_indices()
         return constant_pool
@@ -599,7 +673,9 @@ class ABCReader:
                         f"Invalid typename parameter index: {param.value}, max: {max_multiname_idx}"
                     )
 
-    def _read_constant_value(self, val_index: int, kind: int, pool: ConstantPool) -> DefaultValue:
+    def _read_constant_value(
+        self, val_index: int, kind: int, pool: ConstantPool
+    ) -> DefaultValue:
         """Read and validate a default-value constant."""
         try:
             constant_kind = ConstantKind(kind)
@@ -612,10 +688,19 @@ class ABCReader:
             return DefaultValue(constant_kind, False)
         elif constant_kind == ConstantKind.TRUE:
             return DefaultValue(constant_kind, True)
-        elif constant_kind in (ConstantKind.UTF8, ConstantKind.INT, ConstantKind.UINT, ConstantKind.DOUBLE,
-                               ConstantKind.PRIVATE_NS, ConstantKind.NAMESPACE, ConstantKind.PACKAGE_NAMESPACE,
-                               ConstantKind.PACKAGE_INTERNAL_NS, ConstantKind.PROTECTED_NAMESPACE,
-                               ConstantKind.EXPLICIT_NAMESPACE, ConstantKind.STATIC_PROTECTED_NS):
+        elif constant_kind in (
+            ConstantKind.UTF8,
+            ConstantKind.INT,
+            ConstantKind.UINT,
+            ConstantKind.DOUBLE,
+            ConstantKind.PRIVATE_NS,
+            ConstantKind.NAMESPACE,
+            ConstantKind.PACKAGE_NAMESPACE,
+            ConstantKind.PACKAGE_INTERNAL_NS,
+            ConstantKind.PROTECTED_NAMESPACE,
+            ConstantKind.EXPLICIT_NAMESPACE,
+            ConstantKind.STATIC_PROTECTED_NS,
+        ):
             max_index = self._constant_kind_max_index(constant_kind, pool)
             if val_index <= 0 or val_index > max_index:
                 raise InvalidABCCodeError(
@@ -658,11 +743,11 @@ class ABCReader:
     def read_trait(self, pool: ConstantPool) -> Trait:
         """Read a trait entry and resolve key references."""
         name_idx = self.read_u30()
-        name = pool.resolve_index(name_idx, 'multiname')
-        
+        name = pool.resolve_index(name_idx, "multiname")
+
         kind_and_attrs = self.read_u8()
         kind = TraitKind(kind_and_attrs & 0x0F)
-        attrs = (kind_and_attrs & 0xF0)
+        attrs = kind_and_attrs & 0xF0
 
         data = {}
         metadata = []
@@ -695,7 +780,7 @@ class ABCReader:
                 metadata_indices.append(meta_idx)
                 # Metadata indices reference the metadata table, not the string pool.
                 # Range validation runs after the metadata section is fully parsed.
-                metadata.append(pool.resolve_index(meta_idx, 'string'))
+                metadata.append(pool.resolve_index(meta_idx, "string"))
             data["metadata_indices"] = metadata_indices
 
         return Trait(
@@ -704,7 +789,7 @@ class ABCReader:
             metadata=metadata,
             is_final=bool(attrs & 0x10),
             is_override=bool(attrs & 0x20),
-            data=data
+            data=data,
         )
 
     def read_method(self, pool: ConstantPool) -> MethodInfo:
@@ -715,7 +800,7 @@ class ABCReader:
             raise InvalidABCCodeError(
                 f"return type index out of range: {return_type_idx}, max: {len(pool.multinames)}"
             )
-        return_type = pool.resolve_index(return_type_idx, 'multiname')
+        return_type = pool.resolve_index(return_type_idx, "multiname")
 
         params = []
         for _ in range(param_count):
@@ -724,7 +809,7 @@ class ABCReader:
                 raise InvalidABCCodeError(
                     f"param type index out of range: {param_type_idx}, max: {len(pool.multinames)}"
                 )
-            param_type = pool.resolve_index(param_type_idx, 'multiname')
+            param_type = pool.resolve_index(param_type_idx, "multiname")
             params.append(MethodParam(kind=param_type))
 
         name_idx = self.read_u30()
@@ -734,7 +819,7 @@ class ABCReader:
                     f"method name index out of range: {name_idx}, max: {len(pool.strings)}"
                 )
             name_idx = 0
-        name = pool.resolve_index(name_idx, 'string')
+        name = pool.resolve_index(name_idx, "string")
         flags = MethodFlags(self.read_u8())
 
         # Resolve optional parameter defaults.
@@ -774,7 +859,9 @@ class ABCReader:
                 value_index = self.read_u30()
                 value_kind = self.read_u8()
                 try:
-                    default_value = self._read_constant_value(value_index, value_kind, pool)
+                    default_value = self._read_constant_value(
+                        value_index, value_kind, pool
+                    )
                 except InvalidABCCodeError:
                     if not self._verify_relaxed:
                         raise
@@ -796,13 +883,10 @@ class ABCReader:
                     raise InvalidABCCodeError(
                         f"param name index out of range: {name_idx}, max: {len(pool.strings)}"
                     )
-                param.name = pool.resolve_index(name_idx, 'string')
+                param.name = pool.resolve_index(name_idx, "string")
 
         return MethodInfo(
-            name=name,
-            params=params,
-            return_type=return_type,
-            flags=flags
+            name=name, params=params, return_type=return_type, flags=flags
         )
 
     def read_metadata_item(self, pool: ConstantPool) -> MetadataInfo:
@@ -810,7 +894,9 @@ class ABCReader:
         name_idx = self.read_u30()
         if name_idx == 0:
             if not self._verify_relaxed:
-                raise ValueError("AVM2 constraint: metadata_info.name index cannot be 0")
+                raise ValueError(
+                    "AVM2 constraint: metadata_info.name index cannot be 0"
+                )
             name = ""
         else:
             name = pool.resolve_index(name_idx, "string")
@@ -827,7 +913,7 @@ class ABCReader:
         # Read all keys first, then all values.
         keys = [self.read_u30() for _ in range(item_count)]
         values = [self.read_u30() for _ in range(item_count)]
-        
+
         items = []
         for key_idx, value_idx in zip(keys, values):
             if key_idx > len(pool.strings):
@@ -857,14 +943,14 @@ class ABCReader:
             raise InvalidABCCodeError(
                 f"instance name index out of range: {name_idx}, max: {len(pool.multinames)}"
             )
-        name = pool.resolve_index(name_idx, 'multiname')
+        name = pool.resolve_index(name_idx, "multiname")
 
         super_name_idx = self.read_u30()
         if super_name_idx > len(pool.multinames):
             raise InvalidABCCodeError(
                 f"instance super_name index out of range: {super_name_idx}, max: {len(pool.multinames)}"
             )
-        super_name = pool.resolve_index(super_name_idx, 'multiname')
+        super_name = pool.resolve_index(super_name_idx, "multiname")
         flags = self.read_u8()
 
         protected_namespace = None
@@ -875,7 +961,7 @@ class ABCReader:
                     "instance protected namespace index out of range: "
                     f"{protected_ns_idx}, valid: 1..{len(pool.namespaces)}"
                 )
-            protected_namespace = pool.resolve_index(protected_ns_idx, 'namespace')
+            protected_namespace = pool.resolve_index(protected_ns_idx, "namespace")
 
         interface_count = self.read_u30()
         interfaces = []
@@ -885,7 +971,7 @@ class ABCReader:
                 raise InvalidABCCodeError(
                     f"instance interface index out of range: {interface_idx}, max: {len(pool.multinames)}"
                 )
-            interfaces.append(pool.resolve_index(interface_idx, 'multiname'))
+            interfaces.append(pool.resolve_index(interface_idx, "multiname"))
 
         init_method = self.read_u30()
         trait_count = self.read_u30()
@@ -900,7 +986,7 @@ class ABCReader:
             protected_namespace=protected_namespace,
             interfaces=interfaces,
             init_method=init_method,
-            traits=traits
+            traits=traits,
         )
 
     def read_class(self, pool: ConstantPool) -> ClassInfo:
@@ -917,21 +1003,27 @@ class ABCReader:
         traits = [self.read_trait(pool) for _ in range(trait_count)]
         return ScriptInfo(init_method, traits)
 
-    def parse_instructions(self, code: bytes, pool: Optional[ConstantPool]) -> List[Instruction]:
+    def parse_instructions(
+        self, code: bytes, pool: Optional[ConstantPool]
+    ) -> List[Instruction]:
         """Parse bytecode instructions via the dedicated instruction decoder."""
         return self._instruction_decoder.parse_instructions(code, pool)
 
-    def serialize_instructions_to_string(self, instructions: List[Instruction], 
-                                       pool: Optional[ConstantPool] = None,
-                                       show_offsets: bool = True) -> str:
+    def serialize_instructions_to_string(
+        self,
+        instructions: List[Instruction],
+        pool: Optional[ConstantPool] = None,
+        show_offsets: bool = True,
+    ) -> str:
         return self._instruction_formatter.serialize_instructions_to_string(
             instructions=instructions,
             pool=pool,
             show_offsets=show_offsets,
         )
 
-    def serialize_instructions_as_function_calls(self, instructions: List[Instruction], 
-                                               pool: Optional[ConstantPool] = None) -> str:
+    def serialize_instructions_as_function_calls(
+        self, instructions: List[Instruction], pool: Optional[ConstantPool] = None
+    ) -> str:
         return self._instruction_formatter.serialize_instructions_as_function_calls(
             instructions=instructions,
             pool=pool,
@@ -940,12 +1032,20 @@ class ABCReader:
     def _opcode_to_function_name(self, opcode_name: str) -> str:
         return self._instruction_formatter._opcode_to_function_name(opcode_name)
 
-    def _resolve_operand_for_function_call(self, opcode: Opcode,
-                                          operand: Any, pool: Optional[ConstantPool]) -> str:
-        return self._instruction_formatter._resolve_operand_for_function_call(opcode, operand, pool)
+    def _resolve_operand_for_function_call(
+        self, opcode: Opcode, operand: Any, pool: Optional[ConstantPool]
+    ) -> str:
+        return self._instruction_formatter._resolve_operand_for_function_call(
+            opcode, operand, pool
+        )
 
-    def _resolve_operand_for_display(self, opcode: Opcode, operand_index: int, 
-                                    operand: Any, pool: Optional[ConstantPool]) -> str:
+    def _resolve_operand_for_display(
+        self,
+        opcode: Opcode,
+        operand_index: int,
+        operand: Any,
+        pool: Optional[ConstantPool],
+    ) -> str:
         return self._instruction_formatter._resolve_operand_for_display(
             opcode,
             operand_index,
@@ -953,9 +1053,12 @@ class ABCReader:
             pool,
         )
 
-    def _resolve_operand_for_output(self, opcode: Opcode, operand: Any, pool: Optional[ConstantPool]) -> str:
-        return self._instruction_formatter._resolve_operand_for_output(opcode, operand, pool)
-
+    def _resolve_operand_for_output(
+        self, opcode: Opcode, operand: Any, pool: Optional[ConstantPool]
+    ) -> str:
+        return self._instruction_formatter._resolve_operand_for_output(
+            opcode, operand, pool
+        )
 
     def read_method_body(self, pool: ConstantPool) -> MethodBody:
         """Read a method-body record."""
@@ -1003,13 +1106,15 @@ class ABCReader:
                     f"exception var_name index out of range: {var_name_idx}, max: {len(pool.multinames)}"
                 )
 
-            exceptions.append(ExceptionInfo(
-                from_offset=from_offset,
-                to_offset=to_offset,
-                target_offset=target_offset,
-                exc_type=pool.resolve_index(exc_type_idx, 'multiname'),
-                var_name=pool.resolve_index(var_name_idx, 'multiname')
-            ))
+            exceptions.append(
+                ExceptionInfo(
+                    from_offset=from_offset,
+                    to_offset=to_offset,
+                    target_offset=target_offset,
+                    exc_type=pool.resolve_index(exc_type_idx, "multiname"),
+                    var_name=pool.resolve_index(var_name_idx, "multiname"),
+                )
+            )
 
         if not (self._verify_relaxed and instructions_parse_failed):
             try:
@@ -1038,10 +1143,10 @@ class ABCReader:
             code=code,
             exceptions=exceptions,
             traits=traits,
-            instructions=instructions
+            instructions=instructions,
         )
 
-    def read_abc_file(self) -> 'ABCFile':
+    def read_abc_file(self) -> "ABCFile":
         """Read and validate a complete ABC payload."""
         try:
             minor_version = self.read_u16()
@@ -1081,8 +1186,15 @@ class ABCReader:
             scripts: List[ScriptInfo]
             method_bodies: List[MethodBody]
             try:
-                instances, classes, scripts, method_bodies = self._read_tail_sections(constant_pool)
-            except (InvalidABCCodeError, BufferError, ValueError, IndexError) as tail_error:
+                instances, classes, scripts, method_bodies = self._read_tail_sections(
+                    constant_pool
+                )
+            except (
+                InvalidABCCodeError,
+                BufferError,
+                ValueError,
+                IndexError,
+            ) as tail_error:
                 if not self._verify_relaxed:
                     raise
                 recovery_error = metadata_error or tail_error
@@ -1092,7 +1204,9 @@ class ABCReader:
                     metadata_prefix=metadata,
                     metadata_count=metadata_count,
                     metadata_table_start=metadata_table_start,
-                    metadata_failure_pos=metadata_failure_pos if metadata_failure_pos is not None else self.pos,
+                    metadata_failure_pos=metadata_failure_pos
+                    if metadata_failure_pos is not None
+                    else self.pos,
                     methods_end_pos=methods_end_pos,
                 )
                 if not candidates:
@@ -1166,14 +1280,18 @@ class ABCReader:
                 instances=instances,
                 classes=classes,
                 scripts=scripts,
-                method_bodies=method_bodies
+                method_bodies=method_bodies,
             )
         except InvalidABCCodeError:
             raise
         except BufferError as exc:
-            raise InvalidABCCodeError(f"Malformed or truncated ABC data at offset {self.pos}: {exc}") from exc
+            raise InvalidABCCodeError(
+                f"Malformed or truncated ABC data at offset {self.pos}: {exc}"
+            ) from exc
         except (ValueError, IndexError) as exc:
-            raise InvalidABCCodeError(f"Malformed ABC data at offset {self.pos}: {exc}") from exc
+            raise InvalidABCCodeError(
+                f"Malformed ABC data at offset {self.pos}: {exc}"
+            ) from exc
 
     def _read_tail_sections(
         self,
@@ -1187,7 +1305,9 @@ class ABCReader:
         scripts = [self.read_script(constant_pool) for _ in range(script_count)]
 
         method_body_count = self.read_u30()
-        method_bodies = [self.read_method_body(constant_pool) for _ in range(method_body_count)]
+        method_bodies = [
+            self.read_method_body(constant_pool) for _ in range(method_body_count)
+        ]
         return instances, classes, scripts, method_bodies
 
     def _validate_sections(
@@ -1309,7 +1429,9 @@ class ABCReader:
             method_index = body.method
             if method_index >= len(methods):
                 if not self._verify_relaxed:
-                    raise InvalidABCCodeError(f"Method body references invalid method index: {method_index}")
+                    raise InvalidABCCodeError(
+                        f"Method body references invalid method index: {method_index}"
+                    )
                 continue
 
             method_info = methods[method_index]
@@ -1332,14 +1454,18 @@ class ABCReader:
                     self._stack_verifier.validate_method_body_stack(method_index, body)
 
             if method_index in seen_method_indexes:
-                raise InvalidABCCodeError(f"Duplicate method body for method {method_index}")
+                raise InvalidABCCodeError(
+                    f"Duplicate method body for method {method_index}"
+                )
             seen_method_indexes.add(method_index)
 
             if link_method_bodies:
                 methods[method_index].body = body
 
     @staticmethod
-    def _recovery_candidate_sort_key(candidate: dict[str, Any]) -> tuple[int, int, int, int]:
+    def _recovery_candidate_sort_key(
+        candidate: dict[str, Any],
+    ) -> tuple[int, int, int, int]:
         return (
             -int(candidate["metadata_recovered"]),
             int(candidate["offset_delta"]),
@@ -1369,7 +1495,9 @@ class ABCReader:
         saved_pos = self.pos
         try:
             self.pos = start_pos
-            instances, classes, scripts, method_bodies = self._read_tail_sections(constant_pool)
+            instances, classes, scripts, method_bodies = self._read_tail_sections(
+                constant_pool
+            )
             if not self._buffer.eof():
                 return None
 
@@ -1427,7 +1555,9 @@ class ABCReader:
                 )
                 if candidate is not None:
                     candidate["metadata_recovered"] = len(metadata_entries)
-                    candidate["offset_delta"] = abs(start - anchor_offset) + abs(method_shift)
+                    candidate["offset_delta"] = abs(start - anchor_offset) + abs(
+                        method_shift
+                    )
                     candidate["method_shift"] = method_shift
                     self._push_recovery_candidate(candidates, candidate, limit=limit)
 
@@ -1451,7 +1581,9 @@ class ABCReader:
                         continue
 
                     candidate["metadata_recovered"] = len(metadata_entries)
-                    candidate["offset_delta"] = abs(pos - anchor_offset) + abs(method_shift)
+                    candidate["offset_delta"] = abs(pos - anchor_offset) + abs(
+                        method_shift
+                    )
                     candidate["method_shift"] = method_shift
                     self._push_recovery_candidate(candidates, candidate, limit=limit)
         finally:
@@ -1574,7 +1706,9 @@ class ABCReader:
 
         instruction_offsets = {inst.offset for inst in instructions}
         next_offsets = {
-            inst.offset: (instructions[idx + 1].offset if idx + 1 < len(instructions) else None)
+            inst.offset: (
+                instructions[idx + 1].offset if idx + 1 < len(instructions) else None
+            )
             for idx, inst in enumerate(instructions)
         }
 
@@ -1594,7 +1728,9 @@ class ABCReader:
         offset_to_instruction = {inst.offset: inst for inst in instructions}
         instruction_offsets = set(offset_to_instruction)
         next_offsets = {
-            inst.offset: (instructions[idx + 1].offset if idx + 1 < len(instructions) else None)
+            inst.offset: (
+                instructions[idx + 1].offset if idx + 1 < len(instructions) else None
+            )
             for idx, inst in enumerate(instructions)
         }
 
@@ -2120,11 +2256,20 @@ class ABCReader:
         if existing_type == incoming_type:
             return existing_type
         if self._prefer_precise_any_join:
-            if existing_type == self._STACK_TYPE_ANY and incoming_type != self._STACK_TYPE_ANY:
+            if (
+                existing_type == self._STACK_TYPE_ANY
+                and incoming_type != self._STACK_TYPE_ANY
+            ):
                 return incoming_type
-            if incoming_type == self._STACK_TYPE_ANY and existing_type != self._STACK_TYPE_ANY:
+            if (
+                incoming_type == self._STACK_TYPE_ANY
+                and existing_type != self._STACK_TYPE_ANY
+            ):
                 return existing_type
-        if existing_type == self._STACK_TYPE_ANY or incoming_type == self._STACK_TYPE_ANY:
+        if (
+            existing_type == self._STACK_TYPE_ANY
+            or incoming_type == self._STACK_TYPE_ANY
+        ):
             return self._STACK_TYPE_ANY
         if self._relax_join_types:
             return self._STACK_TYPE_ANY
@@ -2236,7 +2381,11 @@ class ABCReader:
 
         if opcode == Opcode.GetScopeObject:
             scope_type = self._STACK_TYPE_OBJECT
-            if scope_state is not None and instruction.operands and isinstance(instruction.operands[0], int):
+            if (
+                scope_state is not None
+                and instruction.operands
+                and isinstance(instruction.operands[0], int)
+            ):
                 scope_index = instruction.operands[0]
                 if 0 <= scope_index < len(scope_state):
                     scope_type = scope_state[scope_index]
@@ -2268,7 +2417,9 @@ class ABCReader:
             return self._STACK_TYPE_ANY
         return self._declared_type_to_stack_type(target)
 
-    def _call_property_result_type(self, instruction: Instruction, stack_in: tuple[str, ...]) -> str:
+    def _call_property_result_type(
+        self, instruction: Instruction, stack_in: tuple[str, ...]
+    ) -> str:
         if self._multiname_runtime_arity(instruction) > 0:
             return self._STACK_TYPE_ANY
         call_name = self._instruction_multiname_short_name(instruction)
@@ -2315,20 +2466,36 @@ class ABCReader:
             return self._STACK_TYPE_ANY
         return self._method_declared_result_type(method_index)
 
-    def _get_property_result_type(self, instruction: Instruction, stack_in: tuple[str, ...]) -> str:
+    def _get_property_result_type(
+        self, instruction: Instruction, stack_in: tuple[str, ...]
+    ) -> str:
         if self._multiname_runtime_arity(instruction) > 0:
             return self._STACK_TYPE_ANY
         property_name = self._instruction_multiname_short_name(instruction)
         if property_name is None:
             return self._STACK_TYPE_ANY
-        receiver_type = self._property_receiver_type(instruction=instruction, stack_in=stack_in)
-        if property_name == "length" and receiver_type in {self._STACK_TYPE_STRING, self._STACK_TYPE_ARRAY}:
+        receiver_type = self._property_receiver_type(
+            instruction=instruction, stack_in=stack_in
+        )
+        if property_name == "length" and receiver_type in {
+            self._STACK_TYPE_STRING,
+            self._STACK_TYPE_ARRAY,
+        }:
             return self._STACK_TYPE_NUMBER
-        if receiver_type in self._OBJECT_LIKE_RECEIVER_TYPES and property_name in self._OBJECT_METHOD_NAMES:
+        if (
+            receiver_type in self._OBJECT_LIKE_RECEIVER_TYPES
+            and property_name in self._OBJECT_METHOD_NAMES
+        ):
             return self._STACK_TYPE_FUNCTION
-        if receiver_type == self._STACK_TYPE_STRING and property_name in self._STRING_METHOD_NAMES:
+        if (
+            receiver_type == self._STACK_TYPE_STRING
+            and property_name in self._STRING_METHOD_NAMES
+        ):
             return self._STACK_TYPE_FUNCTION
-        if receiver_type == self._STACK_TYPE_ARRAY and property_name in self._ARRAY_METHOD_NAMES:
+        if (
+            receiver_type == self._STACK_TYPE_ARRAY
+            and property_name in self._ARRAY_METHOD_NAMES
+        ):
             return self._STACK_TYPE_FUNCTION
         return self._STACK_TYPE_ANY
 
@@ -2380,7 +2547,9 @@ class ABCReader:
     def _method_declared_result_type(self, method_index: int) -> str:
         if method_index < 0 or method_index >= len(self._method_infos_for_verifier):
             return self._STACK_TYPE_ANY
-        return self._declared_type_to_stack_type(self._method_infos_for_verifier[method_index].return_type)
+        return self._declared_type_to_stack_type(
+            self._method_infos_for_verifier[method_index].return_type
+        )
 
     def _declared_type_to_stack_type(self, declared_type: Any) -> str:
         if declared_type is None:
@@ -2459,7 +2628,12 @@ class ABCReader:
             return local_state
 
         # inc/dec local forms produce numeric local state.
-        if opcode in (Opcode.IncLocal, Opcode.IncLocalI, Opcode.DecLocal, Opcode.DecLocalI):
+        if opcode in (
+            Opcode.IncLocal,
+            Opcode.IncLocalI,
+            Opcode.DecLocal,
+            Opcode.DecLocalI,
+        ):
             indices = local_indices
             if indices is None:
                 indices = self._local_indices_for_instruction(instruction)
@@ -2481,11 +2655,17 @@ class ABCReader:
             if len(indices) >= 2:
                 object_local = indices[0]
                 index_local = indices[1]
-                if 0 <= object_local < len(local_state) and local_state[object_local] != self._STACK_TYPE_OBJECT:
+                if (
+                    0 <= object_local < len(local_state)
+                    and local_state[object_local] != self._STACK_TYPE_OBJECT
+                ):
                     if next_local_state is None:
                         next_local_state = list(local_state)
                     next_local_state[object_local] = self._STACK_TYPE_OBJECT
-                if 0 <= index_local < len(local_state) and local_state[index_local] != self._STACK_TYPE_NUMBER:
+                if (
+                    0 <= index_local < len(local_state)
+                    and local_state[index_local] != self._STACK_TYPE_NUMBER
+                ):
                     if next_local_state is None:
                         next_local_state = list(local_state)
                     next_local_state[index_local] = self._STACK_TYPE_NUMBER
@@ -2513,7 +2693,9 @@ class ABCReader:
 
         if opcode == Opcode.Jump:
             if not instruction.operands:
-                raise InvalidABCCodeError(f"Malformed Jump operands at offset {instruction.offset}")
+                raise InvalidABCCodeError(
+                    f"Malformed Jump operands at offset {instruction.offset}"
+                )
             target = self._resolve_branch_target_offset(
                 instruction=instruction,
                 relative_offset=instruction.operands[0],
@@ -2548,7 +2730,9 @@ class ABCReader:
 
         if opcode == Opcode.LookupSwitch:
             if len(instruction.operands) < 3:
-                raise InvalidABCCodeError(f"Malformed LookupSwitch operands at offset {instruction.offset}")
+                raise InvalidABCCodeError(
+                    f"Malformed LookupSwitch operands at offset {instruction.offset}"
+                )
 
             default_rel = instruction.operands[0]
             case_offsets = instruction.operands[2]
@@ -2624,7 +2808,9 @@ class ABCReader:
             return runtime_arity
         return 0
 
-    def _stack_effect_for_instruction(self, instruction: Instruction) -> Tuple[int, int]:
+    def _stack_effect_for_instruction(
+        self, instruction: Instruction
+    ) -> Tuple[int, int]:
         opcode = instruction.opcode
         effect = self._STACK_EFFECT_STATIC_TABLE[opcode.value]
         if effect is not None:
@@ -2675,22 +2861,30 @@ class ABCReader:
             return arg_count + 2, 1
 
         if opcode == Opcode.CallMethod:
-            arg_count = int(instruction.operands[1]) if len(instruction.operands) > 1 else 0
+            arg_count = (
+                int(instruction.operands[1]) if len(instruction.operands) > 1 else 0
+            )
             return arg_count + 1, 1
 
         if opcode == Opcode.CallStatic:
-            arg_count = int(instruction.operands[1]) if len(instruction.operands) > 1 else 0
+            arg_count = (
+                int(instruction.operands[1]) if len(instruction.operands) > 1 else 0
+            )
             return arg_count + 1, 1
 
         if opcode in self._STACK_EFFECT_CALL_PROPERTY_OPCODES:
-            arg_count = int(instruction.operands[1]) if len(instruction.operands) > 1 else 0
+            arg_count = (
+                int(instruction.operands[1]) if len(instruction.operands) > 1 else 0
+            )
             base_pops = 1  # receiver
             pushes = 1
             runtime_arity = self._multiname_runtime_arity(instruction)
             return arg_count + base_pops + runtime_arity, pushes
 
         if opcode in self._STACK_EFFECT_CALL_PROPVOID_OPCODES:
-            arg_count = int(instruction.operands[1]) if len(instruction.operands) > 1 else 0
+            arg_count = (
+                int(instruction.operands[1]) if len(instruction.operands) > 1 else 0
+            )
             runtime_arity = self._multiname_runtime_arity(instruction)
             return arg_count + 1 + runtime_arity, 0
 
@@ -2721,7 +2915,10 @@ class ABCReader:
                     f"Invalid exception range: from({exc.from_offset}) must be <= to({exc.to_offset})"
                 )
 
-            if exc.from_offset not in valid_range_boundaries or exc.to_offset not in valid_range_boundaries:
+            if (
+                exc.from_offset not in valid_range_boundaries
+                or exc.to_offset not in valid_range_boundaries
+            ):
                 raise InvalidABCCodeError(
                     "Invalid exception range: "
                     f"from={exc.from_offset}, to={exc.to_offset}, code_length={code_length}"
@@ -2746,7 +2943,10 @@ class ABCReader:
         for exc in exceptions:
             if exc.from_offset > exc.to_offset:
                 continue
-            if exc.from_offset not in valid_range_boundaries or exc.to_offset not in valid_range_boundaries:
+            if (
+                exc.from_offset not in valid_range_boundaries
+                or exc.to_offset not in valid_range_boundaries
+            ):
                 continue
             if exc.target_offset not in instruction_offsets:
                 continue

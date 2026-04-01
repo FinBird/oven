@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from typing import TYPE_CHECKING, NamedTuple, Optional
 
+from .enums import EdgeKind
 from .exceptions import InvalidABCCodeError
 from .methods import MethodBody
 
@@ -16,7 +17,7 @@ class _StackValidationTables(NamedTuple):
     stack_effect_by_index: list[tuple[int, int]]
     local_indices_by_index: list[tuple[int, ...]]
     scope_indices_by_index: list[tuple[int, ...]]
-    successors_by_index: list[list[tuple[int, str]]]
+    successors_by_index: list[list[tuple[int, EdgeKind]]]
 
 
 class MethodBodyStackVerifier:
@@ -45,9 +46,13 @@ class MethodBodyStackVerifier:
         scope_state_by_index: list[tuple[str, ...] | None] = [None] * instruction_count
         worklist: deque[int] = deque()
         queued_indices: list[bool] = [False] * instruction_count
-        initial_local_state = tuple(reader._STACK_TYPE_ANY for _ in range(body.num_locals))
+        initial_local_state = tuple(
+            reader._STACK_TYPE_ANY for _ in range(body.num_locals)
+        )
         # Initial scope entries represent pre-existing activation/global objects.
-        initial_scope_state = tuple(reader._STACK_TYPE_OBJECT for _ in range(body.init_scope_depth))
+        initial_scope_state = tuple(
+            reader._STACK_TYPE_OBJECT for _ in range(body.init_scope_depth)
+        )
 
         merge_stack_state = self._merge_stack_state_indexed
         merge_local_state = self._merge_local_state_indexed
@@ -266,12 +271,16 @@ class MethodBodyStackVerifier:
         instructions = body.instructions
         instruction_count = len(instructions)
         instruction_offsets_list = [inst.offset for inst in instructions]
-        offset_to_index = {offset: idx for idx, offset in enumerate(instruction_offsets_list)}
+        offset_to_index = {
+            offset: idx for idx, offset in enumerate(instruction_offsets_list)
+        }
         instruction_offsets = set(offset_to_index)
         stack_effect_by_index: list[tuple[int, int]] = [(0, 0)] * instruction_count
         local_indices_by_index: list[tuple[int, ...]] = [()] * instruction_count
         scope_indices_by_index: list[tuple[int, ...]] = [()] * instruction_count
-        successors_by_index: list[list[tuple[int, str]]] = [[] for _ in range(instruction_count)]
+        successors_by_index: list[list[tuple[int, EdgeKind]]] = [
+            [] for _ in range(instruction_count)
+        ]
 
         stack_effect_for_instruction = reader._stack_effect_for_instruction
         local_indices_for_instruction = reader._local_indices_for_instruction
@@ -325,7 +334,7 @@ class MethodBodyStackVerifier:
         target_index: int,
         join_offset: int,
         incoming_state: tuple[str, ...],
-        edge_kind: str,
+        edge_kind: EdgeKind,
     ) -> None:
         reader = self._reader
         worklist_append = worklist.append
@@ -457,7 +466,7 @@ class MethodBodyStackVerifier:
         target_index: int,
         join_offset: int,
         incoming_state: tuple[str, ...],
-        edge_kind: str,
+        edge_kind: EdgeKind,
     ) -> None:
         reader = self._reader
         worklist_append = worklist.append
