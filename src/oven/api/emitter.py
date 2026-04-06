@@ -1,6 +1,6 @@
-"""AS3 text emission (AST → source). Implementation in ``api.decompiler``."""
+"""AS3 text emission (AST → source)."""
 
-from oven.api.decompiler import (
+from oven.avm2.decompiler.render import (
     AS3Emitter,
     LocalDeclaration,
     MethodContext,
