@@ -5,7 +5,6 @@ from typing import (
     Any,
     Iterator,
     Protocol,
-    Self,
     Sequence,
     TypeAlias,
     TypeVar,
@@ -13,9 +12,9 @@ from typing import (
     runtime_checkable,
 )
 import sys
+from typing_extensions import Self
 
 
-@runtime_checkable
 @runtime_checkable
 class SupportsToAstNode(Protocol):
     def to_ast_node(self) -> "Node": ...

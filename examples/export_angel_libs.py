@@ -24,7 +24,7 @@ def main() -> int:
     decompiler = Decompiler.from_file(
         ABC_PATH,
         options=ExportOptions(
-            debug=True,
+            debug=False,
             mode=ParseMode.RELAXED,
             style="semantic",
             int_format="dec",
