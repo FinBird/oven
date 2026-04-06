@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Iterable, MutableMapping
+from typing import Any, Iterable, MutableMapping, TypeAlias, cast
 from dataclasses import dataclass
 import sys
 
-from .node import Node
+from .node import Node, AstChild
 
-CaptureDict = MutableMapping[str, Any]
+CaptureValue: TypeAlias = AstChild
+CaptureDict: TypeAlias = MutableMapping[str, CaptureValue]
 
 
 def _capture_mark(captures: CaptureDict) -> int:
@@ -69,7 +70,6 @@ def _ensure_matcher(obj: Any) -> BaseMatcher:
     return _Equals(obj)
 
 
-
 @dataclass(slots=True, frozen=True)
 class _AnyNode(BaseMatcher):
     def match(self, target: Any, captures: CaptureDict) -> bool:
@@ -81,7 +81,7 @@ class _Equals(BaseMatcher):
     value: Any
 
     def match(self, target: Any, captures: CaptureDict) -> bool:
-        return target == self.value
+        return bool(target == self.value)
 
 
 @dataclass(slots=True, frozen=True)
@@ -89,43 +89,55 @@ class _IsType(BaseMatcher):
     cls_type: type | tuple[type, ...]
 
     def match(self, target: Any, captures: CaptureDict) -> bool:
+        if self.cls_type is Node:
+            return type(target) is Node
         return isinstance(target, self.cls_type)
 
 
 @dataclass(slots=True, frozen=True)
 class _TypeOf(BaseMatcher):
     """Matches Node.type string or string literals."""
+
     node_type: str
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # Intern string for comparison speed
-        object.__setattr__(self, 'node_type', sys.intern(self.node_type))
+        object.__setattr__(self, "node_type", sys.intern(self.node_type))
 
     def match(self, target: Any, captures: CaptureDict) -> bool:
-        if isinstance(target, Node):
+        if type(target) is Node:
             return target.type is self.node_type
         elif isinstance(target, str):
             return target == self.node_type
         return False
 
 
-
 @dataclass(slots=True, frozen=True)
 class _OneOf(BaseMatcher):
     """Logical OR."""
+
     matchers: tuple[BaseMatcher, ...]
 
     def match(self, target: Any, captures: CaptureDict) -> bool:
         for matcher in self.matchers:
-            mark = _capture_mark(captures)
+            mark = len(captures)
             if matcher.match(target, captures):
                 return True
-            _rollback_captures(captures, mark)
+            if len(captures) > mark:
+                if isinstance(captures, dict):
+                    while len(captures) > mark:
+                        captures.popitem()
+                else:
+                    keys = tuple(captures.keys())
+                    for key in keys[mark:]:
+                        del captures[key]
         return False
+
 
 @dataclass(slots=True, frozen=True)
 class _AllOf(BaseMatcher):
     """Logical AND."""
+
     matchers: tuple[BaseMatcher, ...]
 
     def match(self, target: Any, captures: CaptureDict) -> bool:
@@ -143,7 +155,6 @@ class _Not(BaseMatcher):
         return not self.matcher.match(target, {})
 
 
-
 @dataclass(slots=True, frozen=True)
 class _Capture(BaseMatcher):
     name: str
@@ -159,18 +170,19 @@ class _Capture(BaseMatcher):
 @dataclass(slots=True, frozen=True)
 class _BackRef(BaseMatcher):
     """Matches against a previously captured value."""
+
     name: str
 
     def match(self, target: Any, captures: CaptureDict) -> bool:
         if self.name in captures:
-            return target == captures[self.name]
+            return bool(target == captures[self.name])
         return False
-
 
 
 @dataclass(slots=True, frozen=True)
 class _Rest(BaseMatcher):
     """Marker: Matches remaining items in a sequence."""
+
     capture_name: str | None = None
 
     def match(self, target: Any, captures: CaptureDict) -> bool:
@@ -256,6 +268,7 @@ class _Map(BaseMatcher):
 @dataclass(slots=True, frozen=True)
 class _SequenceMatcher(BaseMatcher):
     """Matches lists (e.g., node children)."""
+
     patterns: tuple[BaseMatcher, ...]
 
     def match(self, target: Any, captures: CaptureDict) -> bool:
@@ -267,7 +280,9 @@ class _SequenceMatcher(BaseMatcher):
     def match_prefix(self, items: list[Any], captures: CaptureDict) -> int | None:
         return self._match_impl(items, captures, allow_prefix=True)
 
-    def _match_impl(self, items: list[Any], captures: CaptureDict, allow_prefix: bool) -> int | None:
+    def _match_impl(
+        self, items: list[Any], captures: CaptureDict, allow_prefix: bool
+    ) -> int | None:
         p_idx = 0
         i_idx = 0
         n_p = len(self.patterns)
@@ -275,52 +290,83 @@ class _SequenceMatcher(BaseMatcher):
 
         while p_idx < n_p:
             pat = self.patterns[p_idx]
+            pat_type = type(pat)
 
-            if isinstance(pat, _Rest):
+            if pat_type is _Rest:
+                pat_rest = cast(_Rest, pat)
                 remaining = items[i_idx:]
-                if pat.capture_name:
-                    captures[pat.capture_name] = remaining
+                if pat_rest.capture_name:
+                    captures[pat_rest.capture_name] = remaining
                 return n_i
 
-            if isinstance(pat, _Maybe):
-                mark = _capture_mark(captures)
-                maybe_consumed = pat.pattern.match_prefix(items[i_idx:], captures)
+            if pat_type is _Maybe:
+                pat_maybe = cast(_Maybe, pat)
+                mark = len(captures)
+                maybe_consumed = pat_maybe.pattern.match_prefix(items[i_idx:], captures)
                 if maybe_consumed is not None:
                     i_idx += maybe_consumed
                 else:
-                    _rollback_captures(captures, mark)
+                    if len(captures) > mark:
+                        if isinstance(captures, dict):
+                            while len(captures) > mark:
+                                captures.popitem()
+                        else:
+                            keys = tuple(captures.keys())
+                            for key in keys[mark:]:
+                                del captures[key]
                 p_idx += 1
                 continue
 
-            if isinstance(pat, _EitherMulti):
+            if pat_type is _EitherMulti:
+                pat_either = cast(_EitherMulti, pat)
                 matched = False
-                for option in pat.options:
-                    mark = _capture_mark(captures)
+                for option in pat_either.options:
+                    mark = len(captures)
                     option_consumed = option.match_prefix(items[i_idx:], captures)
                     if option_consumed is not None:
                         i_idx += option_consumed
                         matched = True
                         break
-                    _rollback_captures(captures, mark)
+                    if len(captures) > mark:
+                        if isinstance(captures, dict):
+                            while len(captures) > mark:
+                                captures.popitem()
+                        else:
+                            keys = tuple(captures.keys())
+                            for key in keys[mark:]:
+                                del captures[key]
                 if not matched:
                     return None
                 p_idx += 1
                 continue
 
-            if isinstance(pat, _Each):
-                mark = _capture_mark(captures)
+            if pat_type is _Each:
+                mark = len(captures)
                 if not pat.match(items[i_idx:], captures):
-                    _rollback_captures(captures, mark)
+                    if len(captures) > mark:
+                        if isinstance(captures, dict):
+                            while len(captures) > mark:
+                                captures.popitem()
+                        else:
+                            keys = tuple(captures.keys())
+                            for key in keys[mark:]:
+                                del captures[key]
                     return None
-                # Keep Ruby behavior: :each advances one input position.
                 i_idx += 1
                 p_idx += 1
                 continue
 
-            if isinstance(pat, _Map):
-                mark = _capture_mark(captures)
+            if pat_type is _Map:
+                mark = len(captures)
                 if not pat.match(items[i_idx:], captures):
-                    _rollback_captures(captures, mark)
+                    if len(captures) > mark:
+                        if isinstance(captures, dict):
+                            while len(captures) > mark:
+                                captures.popitem()
+                        else:
+                            keys = tuple(captures.keys())
+                            for key in keys[mark:]:
+                                del captures[key]
                     return None
                 i_idx = n_i
                 p_idx += 1
@@ -343,12 +389,15 @@ class _SequenceMatcher(BaseMatcher):
 @dataclass(slots=True, frozen=True)
 class _NodeMatcher(BaseMatcher):
     """Matches Node(type, children)."""
+
     type_matcher: BaseMatcher
     children_matcher: _SequenceMatcher | None = None
 
     def match(self, target: Any, captures: CaptureDict) -> bool:
-        if not isinstance(target, Node): return False
-        if not self.type_matcher.match(target.type, captures): return False
+        if type(target) is not Node:
+            return False
+        if not self.type_matcher.match(target.type, captures):
+            return False
         if self.children_matcher:
             return self.children_matcher.match(target.children, captures)
         return True
@@ -357,10 +406,11 @@ class _NodeMatcher(BaseMatcher):
 @dataclass(slots=True, frozen=True)
 class _HasMatcher(BaseMatcher):
     """Recursive search (descendant check)."""
+
     pattern: BaseMatcher
 
     def match(self, target: Any, captures: CaptureDict) -> bool:
-        if not isinstance(target, Node):
+        if type(target) is not Node:
             return False
 
         stack = [target]
@@ -372,15 +422,17 @@ class _HasMatcher(BaseMatcher):
                 captures.update(snapshot)
                 return True
 
-            if isinstance(node, Node):
+            if type(node) is Node:
                 # Reverse children for correct stack processing order
                 for child in reversed(node.children):
-                    if isinstance(child, Node):
+                    if type(child) is Node:
                         stack.append(child)
         return False
 
+
 class m:
     """Matcher Factory DSL."""
+
     any = _AnyNode()
 
     @staticmethod
@@ -463,7 +515,7 @@ class m:
 
     @staticmethod
     def one_of(*options: Any) -> _OneOf:
-        flat = []
+        flat: list[BaseMatcher] = []
         for opt in options:
             matcher = _ensure_matcher(opt)
             if isinstance(matcher, _OneOf):
@@ -496,7 +548,9 @@ class Matcher:
     def __init__(self, pattern: BaseMatcher):
         self.pattern = pattern
 
-    def match(self, node: Any, captures: CaptureDict | None = None) -> CaptureDict | None:
+    def match(
+        self, node: Any, captures: CaptureDict | None = None
+    ) -> CaptureDict | None:
         if captures is None:
             captures = {}
 
@@ -517,4 +571,3 @@ class Matcher:
             if caps := self.match(elem):
                 return elem, caps
         return None
-

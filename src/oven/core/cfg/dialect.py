@@ -17,13 +17,6 @@ class CTIKind(IntEnum):
     TERMINAL = 4
 
 
-# Backward-compatible constants (deprecated, use CTIKind enum instead)
-CTI_NONE: int = 0
-CTI_JUMP: int = 1
-CTI_COND: int = 2
-CTI_SWITCH: int = 3
-CTI_TERMINAL: int = 4
-
 CTITarget: TypeAlias = int | str | None
 CTIResult: TypeAlias = tuple[CTIKind, list[CTITarget]]
 CTIHandler: TypeAlias = Callable[[Node], CTIResult]
@@ -146,26 +139,49 @@ class DefaultControlFlowAdapter:
             else None
         )
         node.children = []
-        return CTIKind.JUMP, [target]
+        if isinstance(target, Node):
+            label: CTITarget = target.type
+        elif isinstance(target, (int, str, type(None))):
+            label = target
+        else:
+            label = None
+        return CTIKind.JUMP, [label]
 
     def _handle_cond(self, node: Node) -> CTIResult:
         idx = self.dialect.conditional_jump_target_index
         target = node.children[idx] if 0 <= idx < len(node.children) else None
         if 0 <= idx < len(node.children):
             node.children = node.children[:idx] + node.children[idx + 1 :]
-        return CTIKind.COND, [target]
+        if isinstance(target, Node):
+            label: CTITarget = target.type
+        elif isinstance(target, (int, str, type(None))):
+            label = target
+        else:
+            label = None
+        return CTIKind.COND, [label]
 
     def _handle_switch(self, node: Node) -> CTIResult:
-        default = (
+        default_raw = (
             node.children[self.dialect.switch_default_index]
             if len(node.children) > self.dialect.switch_default_index
             else None
         )
+        if isinstance(default_raw, Node):
+            default: CTITarget = default_raw.type
+        elif isinstance(default_raw, (int, str, type(None))):
+            default = default_raw
+        else:
+            default = None
+
         case_targets: list[CTITarget] = []
         if len(node.children) > self.dialect.switch_cases_index:
             raw_cases = node.children[self.dialect.switch_cases_index]
             if isinstance(raw_cases, list):
-                case_targets = list(raw_cases)
+                for item in raw_cases:
+                    if isinstance(item, Node):
+                        case_targets.append(item.type)
+                    elif isinstance(item, (int, str)):
+                        case_targets.append(item)
 
         expr = (
             node.children[self.dialect.switch_expr_index]

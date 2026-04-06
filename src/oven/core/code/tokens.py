@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 __all__ = [
     "Token",
@@ -48,7 +48,7 @@ class Token(ABC):
     @property
     def indent_str(self) -> str:
         """Indent string configured by indent width."""
-        return " " * self._format_config["indent_width"]
+        return " " * cast(int, self._format_config["indent_width"])
 
     def indent(self, code: str, options: dict[str, Any]) -> str:
         if not code:
@@ -104,7 +104,9 @@ class NewlineToken(TerminalToken):
 class NonterminalToken(Token):
     __slots__ = ("children",)
 
-    def __init__(self, origin: Any, children: list[Token], options: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self, origin: Any, children: list[Token], options: dict[str, Any] | None = None
+    ) -> None:
         super().__init__(origin, options)
         self.children = [c for c in children if c is not None]
 
@@ -123,7 +125,9 @@ class SurroundedToken(NonterminalToken):
         return f"{self.text_before()}{super().to_text()}{self.text_after()}"
 
     def to_structure(self, options: dict[str, Any] | None = None) -> str:
-        return self._structurize(f"{self.text_before()} ... {self.text_after()}", options or {})
+        return self._structurize(
+            f"{self.text_before()} ... {self.text_after()}", options or {}
+        )
 
 
 class SeparatedToken(SurroundedToken):
@@ -183,4 +187,3 @@ class CodeFormatter:
         if current:
             result.append(" ".join(current))
         return result
-

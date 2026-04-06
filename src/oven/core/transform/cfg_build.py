@@ -24,7 +24,7 @@ class _ExcRange:
         return label is not None and self.start <= label <= self.end
 
 
-class CFGBuild(Transform):
+class CFGBuild(Transform[Any, CFG]):
     """
     Build a CFG from normalized AST nodes.
     """

@@ -47,7 +47,7 @@ class _Replacer(NodeVisitor):
             )
 
 
-class PropagateConstants(Transform, NodeVisitor):
+class PropagateConstants(Transform[Node, Node], NodeVisitor):
     """
     Cheap propagation for find_property_strict values bound to locals.
     """
@@ -67,6 +67,8 @@ class PropagateConstants(Transform, NodeVisitor):
         if value.type != "find_property_strict":
             return
         if node.parent is None:
+            return
+        if not isinstance(local_index, int):
             return
 
         siblings = node.parent.children

@@ -6,7 +6,7 @@ from oven.core.ast import Node, NodeVisitor
 from oven.core.pipeline import Transform
 
 
-class PropagateLabels(Transform, NodeVisitor):
+class PropagateLabels(Transform[Node, Node], NodeVisitor):
     """
     Move child labels upward so CFG build can cut blocks on parent nodes.
     """

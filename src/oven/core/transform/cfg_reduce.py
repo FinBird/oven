@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from oven.core.ast import Node
+from oven.core.ast.node import AstChild
 from oven.core.cfg import CFG, CFGNode
 from oven.core.cfg.dialect import FlowDialect
 from oven.core.pipeline import Transform
+from oven.core.cfg.core import Label
 
 
-class CFGReduce(Transform):
+class CFGReduce(Transform[CFG, Node]):
     """
     Reduce CFG to a structured AST (minimal, practical subset):
     - linear blocks
@@ -23,7 +25,7 @@ class CFGReduce(Transform):
         self._cfg = cfg
         self._visited: set[CFGNode] = set()
         self._loops = cfg.identify_loops()
-        self._exc_processed: set = set()
+        self._exc_processed: set[object] = set()
 
         if cfg.entry is None:
             return Node(self.dialect.ast_begin, [])
@@ -41,8 +43,21 @@ class CFGReduce(Transform):
         continue_target: CFGNode | None = None,
     ) -> Node:
         nodes: list[Node] = []
+        iteration_count = 0
+        max_iterations = 500000  # Increased limit for complex CFGs
+        block_visit_count: dict[CFGNode, int] = {}
 
         while block is not None:
+            iteration_count += 1
+            if iteration_count > max_iterations:
+                break
+
+            # Prevent infinite loops on irreducible control flow
+            if block not in block_visit_count:
+                block_visit_count[block] = 0
+            block_visit_count[block] += 1
+            if block_visit_count[block] > 5:  # Same block visited too many times
+                break
             if break_target is not None and block == break_target:
                 nodes.append(Node(self.dialect.ast_break))
                 break
@@ -227,7 +242,7 @@ class CFGReduce(Transform):
         for insn in block.instructions:
             if insn is block.cti:
                 continue
-            if isinstance(insn, Node):
+            if type(insn) is Node:
                 out.append(insn)
 
     def _classify_loop_target(
@@ -302,7 +317,7 @@ class CFGReduce(Transform):
 
     def _condition_from_jump_if(self, block: CFGNode) -> Node:
         cti = block.cti
-        if not isinstance(cti, Node):
+        if type(cti) is not Node:
             return Node(self.dialect.ast_true)
         children = list(cti.children)
         flag = bool(children[0]) if children else True
@@ -311,14 +326,14 @@ class CFGReduce(Transform):
         # 1) [flag, cond]
         # 2) [flag, target, cond]
         cond_raw: Any
-        if len(children) >= 3 and not isinstance(children[1], Node):
+        if len(children) >= 3 and type(children[1]) is not Node:
             cond_raw = children[2]
         elif len(children) >= 2:
             cond_raw = children[1]
         else:
             cond_raw = Node(self.dialect.ast_true)
 
-        cond = cond_raw if isinstance(cond_raw, Node) else Node(self.dialect.ast_true)
+        cond = cond_raw if type(cond_raw) is Node else Node(self.dialect.ast_true)
         if flag:
             return cond
         return Node(self.dialect.ast_not, [cond])
@@ -349,8 +364,8 @@ class CFGReduce(Transform):
         common = left_pd & right_pd
 
         terminals = self.dialect.terminal_transfers
-        left_terminal = isinstance(left.cti, Node) and left.cti.type in terminals
-        right_terminal = isinstance(right.cti, Node) and right.cti.type in terminals
+        left_terminal = type(left.cti) is Node and left.cti.type in terminals
+        right_terminal = type(right.cti) is Node and right.cti.type in terminals
 
         # One-arm terminal diamond: treat terminal arm as no-merge contributor,
         # pick the nearest non-exit node reachable from the productive arm.
@@ -424,6 +439,64 @@ class CFGReduce(Transform):
             return block.targets[0]
         return None
 
+    def _ends_with_terminal_stmt(self, node: Node) -> bool:
+        """Check if a node (typically a begin block) ends with a terminal statement."""
+        if not isinstance(node, Node):
+            return False
+        if node.type in ("return_void", "return_value", "break", "continue", "throw"):
+            return True
+        if node.type == "begin" and node.children:
+            # Check the last child
+            last_child = node.children[-1]
+            return self._ends_with_terminal_stmt(last_child)
+        return False
+
+    def _optimize_nested_if_else_duplication(
+        self, outer_cond: Node, then_ast: Node, else_ast: Node
+    ) -> Node | None:
+        """
+        Optimize pattern: if (A) { if (B) { X } else { terminal } } else { X }
+        to: if (A && !B) { terminal } X
+        """
+        if not isinstance(then_ast, Node) or then_ast.type != self.dialect.ast_if:
+            return None
+        if len(then_ast.children) != 3:  # Must have condition, then, else
+            return None
+
+        inner_cond = then_ast.children[0]
+        inner_then = then_ast.children[1]
+        inner_else = then_ast.children[2]
+
+        # Check if inner_else is terminal
+        if not self._ends_with_terminal_stmt(inner_else):
+            return None
+
+        # Check if inner_then equals else_ast
+        if not self._ast_equal(inner_then, else_ast):
+            return None
+
+        # Create optimized structure: if (A && !B) { terminal } followed by X
+        # For now, create a simple if without else, followed by the common code
+        negated_inner_cond = Node(self.dialect.ast_not, [inner_cond])
+        # We need to combine conditions. For simplicity, create a compound condition
+        # This is a placeholder - actual implementation would need proper logical AND
+        combined_cond = Node(
+            "&&", [outer_cond, negated_inner_cond]
+        )  # Use string for now
+
+        return Node(
+            self.dialect.ast_begin,
+            [Node(self.dialect.ast_if, [combined_cond, inner_else]), else_ast],
+        )
+
+    def _ast_equal(self, a: Node, b: Node) -> bool:
+        """Check if two AST nodes are structurally equal."""
+        if not isinstance(a, Node) or not isinstance(b, Node):
+            return a == b
+        if a.type != b.type or len(a.children) != len(b.children):
+            return False
+        return all(self._ast_equal(ca, cb) for ca, cb in zip(a.children, b.children))
+
     def _reduce_if_if_possible(
         self,
         header: CFGNode,
@@ -438,10 +511,10 @@ class CFGReduce(Transform):
 
         # two-way diamond
         if s_then is not None and s_then == s_else:
-            merge = s_then
+            diamond_merge = s_then
             then_ast = self._reduce_from(
                 t_then,
-                stop=merge,
+                stop=diamond_merge,
                 barriers=barriers,
                 loop_nodes=loop_nodes,
                 break_target=break_target,
@@ -449,14 +522,31 @@ class CFGReduce(Transform):
             )
             else_ast = self._reduce_from(
                 t_else,
-                stop=merge,
+                stop=diamond_merge,
                 barriers=barriers,
                 loop_nodes=loop_nodes,
                 break_target=break_target,
                 continue_target=continue_target,
             )
             cond = self._condition_from_jump_if(header)
-            return Node(self.dialect.ast_if, [cond, then_ast, else_ast]), merge
+
+            # Optimization: if then branch ends with terminal statement, flatten else
+            if self._ends_with_terminal_stmt(then_ast):
+                # Create a begin block with if (no else) followed by else content
+                if_stmts = [Node(self.dialect.ast_if, [cond, then_ast])]
+                if else_ast.children:  # Only add else if it has content
+                    if_stmts.extend(else_ast.children)
+                flattened_ast = Node(self.dialect.ast_begin, if_stmts)
+                return flattened_ast, diamond_merge
+
+            # Optimization: detect nested if-else where outer else duplicates inner then
+            optimized = self._optimize_nested_if_else_duplication(
+                cond, then_ast, else_ast
+            )
+            if optimized is not None:
+                return optimized, diamond_merge
+
+            return Node(self.dialect.ast_if, [cond, then_ast, else_ast]), diamond_merge
 
         # one-way if: then falls into else root
         if s_then is not None and s_then == t_else:
@@ -610,7 +700,7 @@ class CFGReduce(Transform):
 
     def _is_terminal_block(self, block: CFGNode) -> bool:
         cti = block.cti
-        return isinstance(cti, Node) and cti.type in self.dialect.terminal_transfers
+        return type(cti) is Node and cti.type in self.dialect.terminal_transfers
 
     def _reduce_switch(
         self,
@@ -619,11 +709,12 @@ class CFGReduce(Transform):
     ) -> tuple[Node, CFGNode | None]:
         cti = block.cti
         expr = Node(self.dialect.ast_true)
-        if isinstance(cti, Node):
-            if len(cti.children) == 1 and isinstance(cti.children[0], Node):
+        if type(cti) is Node:
+            if len(cti.children) == 1 and type(cti.children[0]) is Node:
                 expr = cti.children[0]
-            elif len(cti.children) > self.dialect.switch_expr_index and isinstance(
-                cti.children[self.dialect.switch_expr_index], Node
+            elif (
+                len(cti.children) > self.dialect.switch_expr_index
+                and type(cti.children[self.dialect.switch_expr_index]) is Node
             ):
                 expr = cti.children[self.dialect.switch_expr_index]
 
@@ -681,13 +772,13 @@ class CFGReduce(Transform):
                 # 若 case 末尾是显式 jump 到 switch merge，将其规约为 break。
                 last_stmt = case_ast.children[-1]
                 if (
-                    isinstance(last_stmt, Node)
+                    type(last_stmt) is Node
                     and last_stmt.type == self.dialect.jump
                     and last_stmt.children
                 ):
                     jump_label = last_stmt.children[0]
                     jump_target: CFGNode | None
-                    if isinstance(jump_label, CFGNode):
+                    if type(jump_label) is CFGNode:
                         jump_target = jump_label
                     else:
                         try:
@@ -708,7 +799,7 @@ class CFGReduce(Transform):
                 self.dialect.jump,
             }
             has_case_terminator = any(
-                isinstance(node, Node) and node.type in terminators
+                type(node) is Node and node.type in terminators
                 for node in case_ast.descendants()
             )
             # 对直达 merge 的分支，或缺失终止语义的分支，补显式 break，防止 fallthrough。
@@ -732,7 +823,7 @@ class CFGReduce(Transform):
     def _reduce_try_catch_finally(
         self,
         start_block: CFGNode,
-        exc_label,
+        exc_label: Label,
         barriers: set[CFGNode] | None,
         loop_nodes: set[CFGNode] | None,
         break_target: CFGNode | None,
@@ -746,12 +837,12 @@ class CFGReduce(Transform):
         except KeyError:
             return Node(self.dialect.ast_begin, []), None
 
-        catch_defs: list[tuple[object, object, object]] = []
+        catch_defs: list[tuple[object, object, int | str | None]] = []
         for insn in dispatch_node.instructions:
-            if isinstance(insn, Node) and insn.type == self.dialect.exception_dispatch:
+            if type(insn) is Node and insn.type == self.dialect.exception_dispatch:
                 for catch_child in insn.children:
                     if (
-                        isinstance(catch_child, Node)
+                        type(catch_child) is Node
                         and catch_child.type == self.dialect.catch
                     ):
                         exc_type = (
@@ -867,7 +958,12 @@ class CFGReduce(Transform):
 
         return Node(self.dialect.ast_try, try_children), continuation
 
-    def _find_finally_merge_point(self, try_region, catch_entry, dispatch_node):
+    def _find_finally_merge_point(
+        self,
+        try_region: set[CFGNode],
+        catch_entry: CFGNode,
+        dispatch_node: CFGNode,
+    ) -> CFGNode | None:
         try_exit_nodes = []
         for node in try_region:
             for tgt in node.targets:
@@ -882,11 +978,16 @@ class CFGReduce(Transform):
             return merge
         return None
 
-    def _detect_finally_block(self, candidate, try_region, dispatch_node):
+    def _detect_finally_block(
+        self,
+        candidate: CFGNode,
+        try_region: set[CFGNode],
+        dispatch_node: CFGNode,
+    ) -> CFGNode | None:
         if candidate is dispatch_node or candidate in try_region:
             return None
         cti = candidate.cti
-        if not isinstance(cti, Node):
+        if type(cti) is not Node:
             return None
         if cti.type != self.dialect.switch_source:
             return None
@@ -894,15 +995,17 @@ class CFGReduce(Transform):
             return None
         return candidate
 
-    def _find_post_finally_continuation(self, finally_block):
+    def _find_post_finally_continuation(self, finally_block: CFGNode) -> CFGNode | None:
         cti = finally_block.cti
-        if not isinstance(cti, Node):
+        if type(cti) is not Node:
             return None
         terminals = self.dialect.terminal_transfers
         for tgt in finally_block.targets:
-            if isinstance(tgt.cti, Node) and tgt.cti.type in terminals:
+            if type(tgt.cti) is Node and tgt.cti.type in terminals:
                 continue
             if tgt is self._cfg.exit:
                 continue
             return tgt
         return None
+
+

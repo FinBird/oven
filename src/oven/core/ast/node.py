@@ -1,34 +1,59 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import Any, Iterator, Protocol, Self, Sequence, TypeAlias, TypeVar
+from typing import (
+    Any,
+    Iterator,
+    Protocol,
+    Self,
+    Sequence,
+    TypeAlias,
+    TypeVar,
+    overload,
+    runtime_checkable,
+)
 import sys
 
 
+@runtime_checkable
+@runtime_checkable
 class SupportsToAstNode(Protocol):
-    def to_ast_node(self) -> "Node":
-        ...
+    def to_ast_node(self) -> "Node": ...
 
 
 T = TypeVar("T")
-AstChild: TypeAlias = Any
+AstScalar: TypeAlias = str | int | float | bool | None
+AstChild: TypeAlias = Any  # Recursive union with list causes invariance issues
 AstChildren: TypeAlias = list[AstChild]
 
 
-def to_ast_node(obj: SupportsToAstNode | T) -> Node | T:
+@overload
+def to_ast_node(obj: SupportsToAstNode) -> "Node": ...
+
+
+@overload
+def to_ast_node(obj: T) -> T: ...
+
+
+def to_ast_node(obj: SupportsToAstNode | T) -> "Node | T":
     """Helper to convert objects to AST Nodes if supported."""
-    if hasattr(obj, 'to_ast_node'):
-        return obj.to_ast_node()  # type: ignore[union-attr]
+    if type(obj) is Node:
+        return obj
+    if hasattr(obj, "to_ast_node"):
+        return obj.to_ast_node()
     return obj
 
 
 class Node:
     """Abstract Syntax Tree Node."""
-    __slots__ = ('type', 'children', '_metadata', 'parent', '_index_hint')
-    __match_args__ = ('type', 'children', 'metadata')
+
+    __slots__ = ("type", "children", "_metadata", "parent", "_index_hint")
+    __match_args__ = ("type", "children", "metadata")
 
     _EMPTY_METADATA: dict[str, Any] = {}
-    _LEAF_SINGLETON_TYPES: frozenset[str] = frozenset({"true", "false", "null", "undefined", "nan"})
+    _LEAF_SINGLETON_TYPES: frozenset[str] = frozenset(
+        {"true", "false", "null", "undefined", "nan"}
+    )
     _LEAF_SINGLETONS: dict[str, "Node"] = {}
 
     def __init__(
@@ -48,7 +73,7 @@ class Node:
         self._index_hint: int | None = None
 
         for idx, child in enumerate(self.children):
-            if isinstance(child, Node):
+            if type(child) is Node:
                 child.parent = self
                 child._index_hint = idx
 
@@ -83,11 +108,11 @@ class Node:
 
     def normalize_hierarchy(self) -> Self:
         """Recursively set parent pointers for all descendants."""
-        stack = [self]
+        stack: list[Node] = [self]
         while stack:
             node = stack.pop()
             for idx, child in enumerate(node.children):
-                if isinstance(child, Node):
+                if type(child) is Node:
                     child.parent = node
                     child._index_hint = idx
                     stack.append(child)
@@ -95,17 +120,42 @@ class Node:
 
     def descendants(self) -> Iterator[Node]:
         """Yield all descendant nodes using BFS."""
-        queue = deque()
+        queue: deque[Node] = deque()
         for child in self.children:
-            if isinstance(child, Node):
+            if type(child) is Node:
                 queue.append(child)
 
         while queue:
             node = queue.popleft()
             yield node
             for child in node.children:
-                if isinstance(child, Node):
+                if type(child) is Node:
                     queue.append(child)
+
+    def set_children(self, children: AstChildren) -> Self:
+        """Unified method to modify children with efficient local hierarchy sync."""
+        self.children = children
+        for idx, child in enumerate(self.children):
+            if type(child) is Node:
+                child.parent = self
+                child._index_hint = idx
+        return self
+
+    def replace_child(self, old_child: Node, new_child: Node) -> Self:
+        """Replace a child node with another, O(1) hierarchy sync."""
+        try:
+            idx = self.children.index(old_child)
+        except ValueError:
+            raise ValueError("old_child not found in children")
+
+        self.children[idx] = new_child
+        if type(new_child) is Node:
+            new_child.parent = self
+            new_child._index_hint = idx
+
+        old_child.parent = None
+        old_child._index_hint = None
+        return self
 
     def update(
         self,
@@ -117,19 +167,17 @@ class Node:
         if node_type is not None:
             self.type = node_type
         if children is not None:
-            self.children = children
-            for idx, child in enumerate(self.children):
-                if isinstance(child, Node):
-                    child.parent = self
-                    child._index_hint = idx
+            self.set_children(children)
         if metadata:
             self.ensure_metadata().update(metadata)
         return self
 
-    def updated(self,
-                node_type: str | None = None,
-                children: Sequence[AstChild] | None = None,
-                metadata: dict[str, Any] | None = None) -> Node:
+    def updated(
+        self,
+        node_type: str | None = None,
+        children: Sequence[AstChild] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Node:
         """Immutable update: returns a new Node instance (Copy-on-Write style)."""
         new_type = sys.intern(str(node_type)) if node_type is not None else self.type
 
@@ -154,7 +202,11 @@ class Node:
             return -1
         parent_children = self.parent.children
         hint = self._index_hint
-        if hint is not None and hint < len(parent_children) and parent_children[hint] is self:
+        if (
+            hint is not None
+            and hint < len(parent_children)
+            and parent_children[hint] is self
+        ):
             return hint
         try:
             idx = parent_children.index(self)
@@ -165,31 +217,41 @@ class Node:
 
     @property
     def next_sibling(self) -> Any | None:
+        if self.parent is None:
+            return None
         idx = self.index_in_parent
         if idx == -1 or idx >= len(self.parent.children) - 1:
             return None
         sibling = self.parent.children[idx + 1]
-        return sibling if isinstance(sibling, Node) else None
+        return sibling if type(sibling) is Node else None
 
     @property
     def prev_sibling(self) -> Any | None:
+        if self.parent is None:
+            return None
         idx = self.index_in_parent
         if idx <= 0:
             return None
         sibling = self.parent.children[idx - 1]
-        return sibling if isinstance(sibling, Node) else None
+        return sibling if type(sibling) is Node else None
 
     def is_equivalent(self, other: Any) -> bool:
         """Structural equality check (useful for testing)."""
-        if self is other: return True
-        if not isinstance(other, Node): return False
-        if self.type != other.type: return False
-        if self.metadata != other.metadata: return False
-        if len(self.children) != len(other.children): return False
+        if self is other:
+            return True
+        if type(other) is not Node:
+            return False
+        if self.type != other.type:
+            return False
+        if self.metadata != other.metadata:
+            return False
+        if len(self.children) != len(other.children):
+            return False
 
         for c1, c2 in zip(self.children, other.children):
-            if isinstance(c1, Node) and isinstance(c2, Node):
-                if not c1.is_equivalent(c2): return False
+            if type(c1) is Node and type(c2) is Node:
+                if not c1.is_equivalent(c2):
+                    return False
             elif c1 != c2:
                 return False
         return True
@@ -202,9 +264,11 @@ class Node:
         parent_children = self.parent.children
 
         # Use index hint optimization if valid
-        if (self._index_hint is not None and
-                self._index_hint < len(parent_children) and
-                parent_children[self._index_hint] is self):
+        if (
+            self._index_hint is not None
+            and self._index_hint < len(parent_children)
+            and parent_children[self._index_hint] is self
+        ):
             idx = self._index_hint
         else:
             try:
@@ -214,7 +278,7 @@ class Node:
 
         parent_children[idx] = new_node
 
-        if isinstance(new_node, Node):
+        if type(new_node) is Node:
             new_node.parent = self.parent
             new_node._index_hint = idx  # Inherit hint
 
@@ -232,14 +296,14 @@ class Node:
 
         parent.children.pop(idx)
         for i, child in enumerate(self.children):
-            if isinstance(child, Node):
+            if type(child) is Node:
                 child.parent = parent
                 child._index_hint = idx + i
             parent.children.insert(idx + i, child)
 
         for new_idx in range(idx + len(self.children), len(parent.children)):
             sibling = parent.children[new_idx]
-            if isinstance(sibling, Node):
+            if type(sibling) is Node:
                 sibling._index_hint = new_idx
 
         self.parent = None
@@ -256,7 +320,7 @@ class Node:
         parent.children.pop(idx)
         for new_idx in range(idx, len(parent.children)):
             sibling = parent.children[new_idx]
-            if isinstance(sibling, Node):
+            if type(sibling) is Node:
                 sibling._index_hint = new_idx
         self.parent = None
         self._index_hint = None
@@ -265,16 +329,16 @@ class Node:
         """Convert to S-Expression string representation."""
         spaces = "  " * indent
         label = self.metadata.get("label") or self.metadata.get("name")
-        fancy_type = self.type.replace('_', '-')
+        fancy_type = self.type.replace("_", "-")
 
         display_type = f"{label}:{fancy_type}" if label else fancy_type
 
         has_complex_child = False
         for child in self.children:
-            if isinstance(child, Node):
+            if type(child) is Node:
                 has_complex_child = True
                 break
-            if isinstance(child, list) and any(isinstance(c, Node) for c in child):
+            if isinstance(child, list) and any(type(c) is Node for c in child):
                 has_complex_child = True
                 break
 
@@ -286,10 +350,10 @@ class Node:
         else:
             for child in self.children:
                 if has_complex_child:
-                    if isinstance(child, Node):
+                    if type(child) is Node:
                         parts.append(f"\n{child.to_sexp(indent + 1)}")
                     elif hasattr(child, "to_sexp"):
-                        parts.append(f"\n{child.to_sexp(indent + 1)}")  # type: ignore
+                        parts.append(f"\n{child.to_sexp(indent + 1)}")
                     else:
                         parts.append(f"\n{spaces}  {repr(child)}")
                 else:
@@ -322,11 +386,10 @@ class Node:
         return item in self.children
 
     def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, Node):
+        if type(other) is not Node:
             return False
         # Metadata doesn't affect equality
-        return (self.type == other.type and
-                self.children == other.children)
+        return self.type == other.type and self.children == other.children
 
     def __hash__(self) -> int:
         # Hash based on type and children only, metadata excluded as per tests
@@ -341,9 +404,12 @@ class Node:
         return self.children.count(value)
 
 
-
 class NodeVisitor:
     """AST Visitor that supports recursive modifications."""
+
+    STRICT_HIERARCHY: bool = (
+        True  # Set to False for passes that don't modify tree structure
+    )
 
     _dispatch_table: dict[str, str] = {}
     _has_on_any: bool = False
@@ -366,39 +432,34 @@ class NodeVisitor:
         cls._has_on_any = callable(getattr(cls, "on_any", None))
 
     def visit(self, node: Node) -> Node:
-        # Pre-seed index hints before recursion to speed up in-pass replacements.
-        for idx, child in enumerate(node.children):
-            if isinstance(child, Node):
-                child._index_hint = idx
+        # Conditionally pre-seed index hints before recursion only if STRICT_HIERARCHY
+        if self.STRICT_HIERARCHY:
+            for idx, child in enumerate(node.children):
+                if type(child) is Node:
+                    child._index_hint = idx
 
-        # Pass 1: recurse node children.
-        # Use a snapshot to avoid iterator corruption when child transforms mutate
-        # sibling slots on the parent node.
+        # Pass 1: recurse node children with snapshot to avoid corruption
         for child in list(node.children):
-            if isinstance(child, Node):
+            if type(child) is Node:
                 self.visit(child)
 
-        # Pass 2: inline `expand` nodes from the latest child layout.
-        expanded_children: AstChildren = []
-        for child in node.children:
-            if isinstance(child, Node) and child.type == "expand":
-                expanded_children.extend(child.children)
-                continue
-            expanded_children.append(child)
-
-        # Pass 3: drop `remove` nodes and rebuild hierarchy/index hints once.
+        # Process expand and remove nodes in a single pass
         final_children: AstChildren = []
-        for child in expanded_children:
-            if isinstance(child, Node) and child.type == "remove":
-                continue
-            final_children.append(child)
+        for child in node.children:
+            if type(child) is Node:
+                self._flatten_child(child, final_children)
+            else:
+                final_children.append(child)
 
         node.children = final_children
-        for idx, child in enumerate(final_children):
-            if isinstance(child, Node):
-                child.parent = node
-                child._index_hint = idx
+        # Conditionally rebuild hierarchy and index hints only if STRICT_HIERARCHY
+        if self.STRICT_HIERARCHY:
+            for idx, child in enumerate(final_children):
+                if type(child) is Node:
+                    child.parent = node
+                    child._index_hint = idx
 
+        # Execute handler via dispatch table (avoid getattr in hot path)
         dispatch_table = type(self)._dispatch_table
         handler_name = dispatch_table.get(node.type)
         if handler_name is not None:
@@ -407,7 +468,9 @@ class NodeVisitor:
             dynamic_cache = getattr(self, "_visitor_dynamic_handler_cache", None)
             if not isinstance(dynamic_cache, dict):
                 dynamic_cache = {}
-                setattr(self, "_visitor_dynamic_handler_cache", dynamic_cache)
+                object.__setattr__(
+                    self, "_visitor_dynamic_handler_cache", dynamic_cache
+                )
 
             handler = dynamic_cache.get(node.type, self._MISSING)
             if handler is self._MISSING:
@@ -423,3 +486,18 @@ class NodeVisitor:
                     on_any(node)
 
         return node
+
+    def _flatten_child(self, child: Node, new_children: AstChildren) -> None:
+        if child.type == "expand":
+            for sub in child.children:
+                if isinstance(sub, Node):
+                    if sub.type == "remove":
+                        continue
+                    elif sub.type == "expand":
+                        self._flatten_child(sub, new_children)
+                    else:
+                        new_children.append(sub)
+                else:
+                    new_children.append(sub)
+        elif child.type != "remove":
+            new_children.append(child)
