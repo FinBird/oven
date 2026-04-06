@@ -1,5 +1,5 @@
 from collections import deque
-from typing import List, Optional, TYPE_CHECKING, Any, Tuple
+from typing import Dict, List, Optional, TYPE_CHECKING, Any, Tuple, TypeAlias, Union
 
 from ..buffer import Buffer, BufferError
 from ..file import ABCFile, MetadataItem, MetadataInfo
@@ -24,6 +24,10 @@ from ..enums import (
     Index,
     EdgeKind,
 )
+
+TraitDataValue: TypeAlias = int|Index[Multiname]|Index["MethodInfo"] |Index["ClassInfo"]|DefaultValue|List[int]|None
+
+
 from ..instruction_formatter import InstructionFormatter
 from ..verifier import MethodBodyStackVerifier
 from .decoder import InstructionDecoder
@@ -389,6 +393,23 @@ class ABCReader:
         Opcode.DeleteProperty: _STACK_TYPE_BOOLEAN,
     }
 
+    @staticmethod
+    def _op_int(instruction: Instruction, index: int) -> int:
+        if not instruction.operands or len(instruction.operands) <= index:
+            raise ValueError(
+                f"Invalid operand index {index} for instruction {instruction}"
+            )
+        operand = instruction.operands[index]
+        if isinstance(operand, int):
+            return operand
+        if isinstance(operand, str):
+            return int(operand)
+        raise TypeError(
+            f"Operand at index {index} is not convertible to int: {operand}"
+        )
+        # For other types, assume they can be converted
+        return int(operand)
+
     def __init__(
         self,
         data: bytes,
@@ -528,14 +549,14 @@ class ABCReader:
         for _ in range(namespace_count - 1):
             raw_kind = self.read_u8()
             try:
-                kind = NamespaceKind(raw_kind)
+                ns_kind = NamespaceKind(raw_kind)
             except ValueError:
                 if not self._verify_relaxed:
                     raise InvalidABCCodeError(f"Unknown namespace kind: {raw_kind}")
                 # Some non-standard or obfuscated ABC samples carry unknown
                 # namespace kinds. Keep parsing in relaxed mode by coercing to
                 # the broadest namespace kind.
-                kind = NamespaceKind.NAMESPACE
+                ns_kind = NamespaceKind.NAMESPACE
             name_idx = self.read_u30()
             if name_idx > len(strings):
                 if not self._verify_relaxed:
@@ -543,7 +564,7 @@ class ABCReader:
                         f"Invalid namespace name index: {name_idx}, max: {len(strings)}"
                     )
                 name_idx = 0
-            namespaces.append(NamespaceInfo(kind, name_idx))
+            namespaces.append(NamespaceInfo(ns_kind, name_idx))
 
         # Namespace-set constant pool.
         ns_set_count = self.read_u30()
@@ -569,15 +590,15 @@ class ABCReader:
         multi_names: List[Multiname] = []
         for _ in range(multi_name_count - 1):
             try:
-                kind = MultinameKind(self.read_u8())
+                mn_kind = MultinameKind(self.read_u8())
             except ValueError as exc:
                 if not self._verify_relaxed:
                     raise InvalidABCCodeError(f"Invalid multiname kind: {exc}")
                 # In relaxed mode, skip invalid multiname kinds by using a placeholder
-                kind = MultinameKind.QNAME
-            data = {}
+                mn_kind = MultinameKind.QNAME
+            data: Dict[str, Any] = {}
 
-            if kind in (MultinameKind.QNAME, MultinameKind.QNAMEA):
+            if mn_kind in (MultinameKind.QNAME, MultinameKind.QNAMEA):
                 ns_idx = self.read_u30()
                 name_idx = self.read_u30()
                 if ns_idx > len(namespaces):
@@ -590,18 +611,18 @@ class ABCReader:
                     )
                 data["namespace"] = Index(ns_idx) if ns_idx > 0 else None
                 data["name"] = Index(name_idx) if name_idx > 0 else None
-            elif kind in (MultinameKind.RTQNAME, MultinameKind.RTQNAMEA):
+            elif mn_kind in (MultinameKind.RTQNAME, MultinameKind.RTQNAMEA):
                 name_idx = self.read_u30()
                 if name_idx > len(strings):
                     raise InvalidABCCodeError(
                         f"Invalid multiname name index: {name_idx}, max: {len(strings)}"
                     )
                 data["name"] = Index(name_idx) if name_idx > 0 else None
-            elif kind in (MultinameKind.RTQNAMEL, MultinameKind.RTQNAMELA):
+            elif mn_kind in (MultinameKind.RTQNAMEL, MultinameKind.RTQNAMELA):
                 # Runtime-qualified multiname with late-resolved name carries no
                 # extra pool indices in the constant-pool payload.
                 pass
-            elif kind in (MultinameKind.MULTINAME, MultinameKind.MULTINAMEA):
+            elif mn_kind in (MultinameKind.MULTINAME, MultinameKind.MULTINAMEA):
                 name_idx = self.read_u30()
                 ns_set_idx = self.read_u30()
                 if name_idx > len(strings):
@@ -616,7 +637,7 @@ class ABCReader:
                 data["namespace_set"] = (
                     namespace_sets[ns_set_idx - 1] if ns_set_idx > 0 else None
                 )
-            elif kind in (MultinameKind.MULTINAMEL, MultinameKind.MULTINAMELA):
+            elif mn_kind in (MultinameKind.MULTINAMEL, MultinameKind.MULTINAMELA):
                 ns_set_idx = self.read_u30()
                 if ns_set_idx > len(namespace_sets):
                     raise InvalidABCCodeError(
@@ -625,19 +646,19 @@ class ABCReader:
                 data["namespace_set"] = (
                     namespace_sets[ns_set_idx - 1] if ns_set_idx > 0 else None
                 )
-            elif kind == MultinameKind.TYPENAME:
+            elif mn_kind == MultinameKind.TYPENAME:
                 base_idx = self.read_u30()
                 param_count = self.read_u30()
-                data["base_type"] = Index(base_idx) if base_idx > 0 else None
-                parameters = []
+                data["base_type"] = Index[Any](base_idx) if base_idx > 0 else None
+                parameters: list[Index[Any] | None] = []
                 for _ in range(param_count):
                     param_idx = self.read_u30()
-                    parameters.append(Index(param_idx) if param_idx > 0 else None)
+                    parameters.append(Index[Any](param_idx) if param_idx > 0 else None)
                 data["parameters"] = parameters
             else:
-                raise InvalidABCCodeError(f"Unknown multiname kind: {kind}")
+                raise InvalidABCCodeError(f"Unknown multiname kind: {mn_kind}")
 
-            multi_names.append(Multiname(kind, data))
+            multi_names.append(Multiname(mn_kind, data))
 
         self._validate_multiname_references(multi_names)
 
@@ -742,39 +763,40 @@ class ABCReader:
 
     def read_trait(self, pool: ConstantPool) -> Trait:
         """Read a trait entry and resolve key references."""
-        name_idx = self.read_u30()
-        name = pool.resolve_index(name_idx, "multiname")
+        name_idx:int = self.read_u30()
+        name:str = pool.resolve_index(name_idx, "multiname")
 
-        kind_and_attrs = self.read_u8()
-        kind = TraitKind(kind_and_attrs & 0x0F)
-        attrs = kind_and_attrs & 0xF0
+        kind_and_attrs:int = self.read_u8()
+        kind:TraitKind = TraitKind(kind_and_attrs & 0x0F)
+        attrs:int = kind_and_attrs & 0xF0
 
-        data = {}
-        metadata = []
+        data:Dict[str,TraitDataValue] = {}
+        metadata:List[str] = []
 
-        if kind in (TraitKind.SLOT, TraitKind.CONST):
-            data["slot_id"] = self.read_u30()
-            type_name_idx = self.read_u30()
-            if type_name_idx > len(pool.multinames):
-                raise InvalidABCCodeError(
-                    f"trait type_name index out of range: {type_name_idx}, max: {len(pool.multinames)}"
-                )
-            data["type_name"] = Index(type_name_idx)
-            data["value"] = self.read_optional_value(pool)
-        elif kind in (TraitKind.METHOD, TraitKind.GETTER, TraitKind.SETTER):
-            data["disp_id"] = self.read_u30()
-            data["method"] = Index(self.read_u30())
-        elif kind == TraitKind.CLASS:
-            data["slot_id"] = self.read_u30()
-            data["class"] = Index(self.read_u30())
-        elif kind == TraitKind.FUNCTION:
-            data["slot_id"] = self.read_u30()
-            data["function"] = Index(self.read_u30())
+        match kind:
+            case TraitKind.SLOT | TraitKind.CONST:
+                data["slot_id"] = self.read_u30()
+                type_name_idx:int = self.read_u30()
+                if type_name_idx > len(pool.multinames):
+                    raise InvalidABCCodeError(
+                        f"trait type_name index out of range: {type_name_idx}, max: {len(pool.multinames)}"
+                    )
+                data["type_name"] = Index[Multiname](type_name_idx)
+                data["value"] = self.read_optional_value(pool)
+            case TraitKind.METHOD | TraitKind.GETTER | TraitKind.SETTER:
+                data["disp_id"] = self.read_u30()
+                data["method"] = Index[MethodInfo](self.read_u30())
+            case TraitKind.CLASS:
+                data["slot_id"] = self.read_u30()
+                data["class"] = Index[ClassInfo](self.read_u30())
+            case TraitKind.FUNCTION:
+                data["slot_id"] = self.read_u30()
+                data["function"] = Index[MethodInfo](self.read_u30())
 
         # Read metadata indices and resolve display names.
         if attrs & 0x40:  # ATTR_METADATA
-            metadata_count = self.read_u30()
-            metadata_indices = []
+            metadata_count: int = self.read_u30()
+            metadata_indices:List[int] = []
             for _ in range(metadata_count):
                 meta_idx = self.read_u30()
                 metadata_indices.append(meta_idx)
@@ -2588,6 +2610,7 @@ class ABCReader:
         local_state: tuple[str, ...],
         local_indices: Optional[tuple[int, ...]] = None,
     ) -> tuple[str, ...]:
+        next_local_state: Optional[list[str]] = None
         opcode = instruction.opcode
         if not local_state:
             return local_state
@@ -2651,7 +2674,7 @@ class ABCReader:
             indices = local_indices
             if indices is None:
                 indices = self._local_indices_for_instruction(instruction)
-            next_local_state: Optional[list[str]] = None
+            next_local_state = None
             if len(indices) >= 2:
                 object_local = indices[0]
                 index_local = indices[1]
@@ -2685,7 +2708,8 @@ class ABCReader:
         next_offset: Optional[int],
         instruction_offsets: set[int],
         code_length: int,
-    ) -> List[tuple[int, str]]:
+    ) -> List[tuple[int, EdgeKind]]:
+        targets: List[tuple[int, EdgeKind]] = []
         opcode = instruction.opcode
 
         if opcode in self._TERMINATOR_OPCODES:
@@ -2713,7 +2737,7 @@ class ABCReader:
                 raise InvalidABCCodeError(
                     f"Malformed conditional-branch operands at offset {instruction.offset}"
                 )
-            targets: List[tuple[int, str]] = []
+            targets = []
             if next_offset is not None:
                 targets.append((next_offset, self._EDGE_KIND_NORMAL))
             target = self._resolve_branch_target_offset(
@@ -2741,7 +2765,7 @@ class ABCReader:
                     f"Malformed LookupSwitch case table at offset {instruction.offset}"
                 )
 
-            targets: List[tuple[int, str]] = []
+            switch_targets = []
             default_target = self._resolve_branch_target_offset(
                 instruction=instruction,
                 relative_offset=default_rel,
@@ -2751,7 +2775,7 @@ class ABCReader:
                 allow_relaxed=not self._strict_lookupswitch,
             )
             if default_target in instruction_offsets:
-                targets.append((default_target, self._EDGE_KIND_LOOKUPSWITCH))
+                switch_targets.append((default_target, self._EDGE_KIND_LOOKUPSWITCH))
             for rel in case_offsets:
                 target = self._resolve_branch_target_offset(
                     instruction=instruction,
@@ -2762,8 +2786,8 @@ class ABCReader:
                     allow_relaxed=not self._strict_lookupswitch,
                 )
                 if target in instruction_offsets:
-                    targets.append((target, self._EDGE_KIND_LOOKUPSWITCH))
-            return targets
+                    switch_targets.append((target, self._EDGE_KIND_LOOKUPSWITCH))
+            return switch_targets
 
         if next_offset is not None:
             return [(next_offset, self._EDGE_KIND_NORMAL)]
@@ -2842,39 +2866,39 @@ class ABCReader:
             return runtime_arity, 1
 
         if opcode == Opcode.NewArray:
-            arg_count = int(instruction.operands[0]) if instruction.operands else 0
+            arg_count = self._op_int(instruction, 0) if instruction.operands else 0
             return arg_count, 1
 
         if opcode == Opcode.NewObject:
-            pair_count = int(instruction.operands[0]) if instruction.operands else 0
+            pair_count = self._op_int(instruction, 0) if instruction.operands else 0
             return pair_count * 2, 1
 
         if opcode == Opcode.NewClass:
             return 1, 1
 
         if opcode == Opcode.ApplyType:
-            arg_count = int(instruction.operands[0]) if instruction.operands else 0
+            arg_count = self._op_int(instruction, 0) if instruction.operands else 0
             return arg_count + 1, 1
 
         if opcode == Opcode.Call:
-            arg_count = int(instruction.operands[0]) if instruction.operands else 0
+            arg_count = self._op_int(instruction, 0) if instruction.operands else 0
             return arg_count + 2, 1
 
         if opcode == Opcode.CallMethod:
             arg_count = (
-                int(instruction.operands[1]) if len(instruction.operands) > 1 else 0
+                self._op_int(instruction, 1) if len(instruction.operands) > 1 else 0
             )
             return arg_count + 1, 1
 
         if opcode == Opcode.CallStatic:
             arg_count = (
-                int(instruction.operands[1]) if len(instruction.operands) > 1 else 0
+                self._op_int(instruction, 1) if len(instruction.operands) > 1 else 0
             )
             return arg_count + 1, 1
 
         if opcode in self._STACK_EFFECT_CALL_PROPERTY_OPCODES:
             arg_count = (
-                int(instruction.operands[1]) if len(instruction.operands) > 1 else 0
+                self._op_int(instruction, 1) if len(instruction.operands) > 1 else 0
             )
             base_pops = 1  # receiver
             pushes = 1
@@ -2883,17 +2907,17 @@ class ABCReader:
 
         if opcode in self._STACK_EFFECT_CALL_PROPVOID_OPCODES:
             arg_count = (
-                int(instruction.operands[1]) if len(instruction.operands) > 1 else 0
+                self._op_int(instruction, 1) if len(instruction.operands) > 1 else 0
             )
             runtime_arity = self._multiname_runtime_arity(instruction)
             return arg_count + 1 + runtime_arity, 0
 
         if opcode == Opcode.Construct:
-            arg_count = int(instruction.operands[0]) if instruction.operands else 0
+            arg_count = self._op_int(instruction, 0) if instruction.operands else 0
             return arg_count + 1, 1
 
         if opcode == Opcode.ConstructSuper:
-            arg_count = int(instruction.operands[0]) if instruction.operands else 0
+            arg_count = self._op_int(instruction, 0) if instruction.operands else 0
             return arg_count + 1, 0
 
         # Conservative fallback for opcodes without explicit stack semantics.
@@ -3022,6 +3046,8 @@ class ABCReader:
     ) -> None:
         for trait in traits:
             if trait.kind in (TraitKind.METHOD, TraitKind.GETTER, TraitKind.SETTER):
+                if trait.data is None:
+                    continue
                 ref = trait.data.get("method")
                 index = ref.value if isinstance(ref, Index) else ref
                 if index is None or index >= methods_count:
@@ -3030,6 +3056,8 @@ class ABCReader:
                     )
 
             elif trait.kind == TraitKind.FUNCTION:
+                if trait.data is None:
+                    continue
                 ref = trait.data.get("function")
                 index = ref.value if isinstance(ref, Index) else ref
                 if index is None or index >= methods_count:
@@ -3038,6 +3066,8 @@ class ABCReader:
                     )
 
             elif trait.kind == TraitKind.CLASS:
+                if trait.data is None:
+                    continue
                 ref = trait.data.get("class")
                 index = ref.value if isinstance(ref, Index) else ref
                 if index is None or index >= classes_count:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Callable, TypeAlias
+from typing import Callable, TypeAlias, cast
 
 from ..constant_pool import ConstantPool, MultinameRef
-from ..enums import Instruction, Opcode
+from ..enums import Instruction, Opcode, OperandType
 from ..exceptions import InvalidABCCodeError
 from .opcode_registry import (
     FORM_DEBUG,
@@ -34,7 +34,7 @@ from .opcode_registry import (
     U30_PLAIN_OPERAND_OPCODES,
 )
 
-OperandValue: TypeAlias = object
+OperandValue: TypeAlias = OperandType
 
 _CACHE_MISS: object = object()
 
@@ -64,7 +64,9 @@ class InstructionDecoder:
     def __init__(self, *, verify_relaxed: bool = False) -> None:
         self._verify_relaxed = verify_relaxed
 
-    def parse_instructions(self, code: bytes, pool: ConstantPool | None) -> list[Instruction]:
+    def parse_instructions(
+        self, code: bytes, pool: ConstantPool | None
+    ) -> list[Instruction]:
         instructions: list[Instruction] = []
         pos = 0
         code_len = len(code)
@@ -86,7 +88,9 @@ class InstructionDecoder:
                     if verify_relaxed:
                         append_instruction(make_instruction(Opcode.Nop, [], offset))
                         continue
-                    raise InvalidABCCodeError(f"Unknown opcode: {opcode_byte:#x} at offset {offset}")
+                    raise InvalidABCCodeError(
+                        f"Unknown opcode: {opcode_byte:#x} at offset {offset}"
+                    )
 
                 operands, operand_size = read_operands_raw(opcode, code, pos)
                 pos += operand_size
@@ -106,9 +110,13 @@ class InstructionDecoder:
                 if verify_relaxed:
                     append_instruction(make_instruction(Opcode.Nop, [], offset))
                     continue
-                raise InvalidABCCodeError(f"Unknown opcode: {opcode_byte:#x} at offset {offset}")
+                raise InvalidABCCodeError(
+                    f"Unknown opcode: {opcode_byte:#x} at offset {offset}"
+                )
 
-            operands, operand_size = read_operands_preloaded(opcode, code, pos, preloaded_tables)
+            operands, operand_size = read_operands_preloaded(
+                opcode, code, pos, preloaded_tables
+            )
             pos += operand_size
             append_instruction(make_instruction(opcode, operands, offset))
 
@@ -285,7 +293,9 @@ class InstructionDecoder:
         }
 
     @staticmethod
-    def _lookup_preloaded(index: int, kind: PoolKind, preloaded_tables: PreloadedTables) -> OperandValue:
+    def _lookup_preloaded(
+        index: int, kind: PoolKind, preloaded_tables: PreloadedTables
+    ) -> OperandValue:
         if index == 0:
             return "*"
         values = preloaded_tables.get(kind)
@@ -314,11 +324,12 @@ class InstructionDecoder:
         if kind_cache is None:
             kind_cache = {}
             resolve_cache[kind] = kind_cache
-        resolved = kind_cache.get(index, _CACHE_MISS)
-        if resolved is _CACHE_MISS:
+        if index in kind_cache:
+            return kind_cache[index]
+        else:
             resolved = resolve_index(index, kind)
             kind_cache[index] = resolved
-        return resolved
+            return resolved
 
     @staticmethod
     def _read_i24_fast(data: bytes, pos: int) -> int:

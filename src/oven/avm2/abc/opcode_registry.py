@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Final, Literal, TypeAlias
+from typing import Any, Final, Literal, TypeAlias
 
 from ..enums import Opcode
 
-PoolKind: TypeAlias = Literal["int", "uint", "double", "string", "namespace", "multiname"]
+PoolKind: TypeAlias = Literal[
+    "int", "uint", "double", "string", "namespace", "multiname"
+]
 
 FORM_NONE: Final[int] = 0
 FORM_RELATIVE_I24: Final[int] = 1
@@ -71,11 +73,11 @@ def _default_info(opcode: int) -> OpcodeInfo:
 _registry: list[OpcodeInfo] = [_default_info(i) for i in range(256)]
 
 
-def _set_info(opcode: Opcode, **changes: int | bool | str | None) -> None:
+def _set_info(opcode: Opcode, **changes: Any) -> None:
     _registry[opcode.value] = replace(_registry[opcode.value], **changes)
 
 
-def _set_group(opcodes: frozenset[Opcode], **changes: int | bool | str | None) -> None:
+def _set_group(opcodes: frozenset[Opcode], **changes: Any) -> None:
     for opcode in opcodes:
         _set_info(opcode, **changes)
 
@@ -291,7 +293,9 @@ for _opcode, _kind in POOL_INDEX_OPERAND_KINDS.items():
     _set_info(_opcode, operand_form=FORM_POOL_INDEX, pool_kind=_kind)
 _set_group(MULTINAME_INDEX_OPERAND_OPCODES, operand_form=FORM_MULTINAME_INDEX)
 _set_group(TWO_U30_PLAIN_OPERAND_OPCODES, operand_form=FORM_TWO_U30_PLAIN)
-_set_group(TWO_U30_MULTINAME_COUNT_OPERAND_OPCODES, operand_form=FORM_TWO_U30_MULTINAME_COUNT)
+_set_group(
+    TWO_U30_MULTINAME_COUNT_OPERAND_OPCODES, operand_form=FORM_TWO_U30_MULTINAME_COUNT
+)
 _set_info(Opcode.Debug, operand_form=FORM_DEBUG)
 _set_info(Opcode.DebugLine, operand_form=FORM_DEBUGLINE)
 _set_info(Opcode.Dxns, operand_form=FORM_U30_STRING)
@@ -316,7 +320,9 @@ CONDITIONAL_BRANCH_OPCODES: Final[frozenset[Opcode]] = frozenset(
     }
 )
 
-TERMINATOR_OPCODES: Final[frozenset[Opcode]] = frozenset({Opcode.ReturnVoid, Opcode.ReturnValue, Opcode.Throw})
+TERMINATOR_OPCODES: Final[frozenset[Opcode]] = frozenset(
+    {Opcode.ReturnVoid, Opcode.ReturnValue, Opcode.Throw}
+)
 
 _set_group(CONDITIONAL_BRANCH_OPCODES, is_branch=True, is_conditional_branch=True)
 _set_info(Opcode.Jump, is_branch=True, is_conditional_branch=False)
@@ -483,7 +489,9 @@ STACK_EFFECT_GET_PROPERTY_OPCODES: Final[frozenset[Opcode]] = frozenset(
 STACK_EFFECT_SET_PROPERTY_OPCODES: Final[frozenset[Opcode]] = frozenset(
     {Opcode.SetProperty, Opcode.SetSuper, Opcode.InitProperty}
 )
-STACK_EFFECT_GET_SCOPE_OPCODES: Final[frozenset[Opcode]] = frozenset({Opcode.GetScopeObject, Opcode.GetOuterScope})
+STACK_EFFECT_GET_SCOPE_OPCODES: Final[frozenset[Opcode]] = frozenset(
+    {Opcode.GetScopeObject, Opcode.GetOuterScope}
+)
 STACK_EFFECT_FIND_PROPERTY_OPCODES: Final[frozenset[Opcode]] = frozenset(
     {Opcode.FindProperty, Opcode.FindPropStrict, Opcode.FindDef, Opcode.GetLex}
 )
@@ -502,10 +510,18 @@ STACK_EFFECT_MEMORY_LOAD_OPCODES: Final[frozenset[Opcode]] = frozenset(
 STACK_EFFECT_MEMORY_STORE_OPCODES: Final[frozenset[Opcode]] = frozenset(
     {Opcode.Si8, Opcode.Si16, Opcode.Si32, Opcode.Sf32, Opcode.Sf64}
 )
-STACK_EFFECT_SIGN_EXTEND_OPCODES: Final[frozenset[Opcode]] = frozenset({Opcode.Sxi1, Opcode.Sxi8, Opcode.Sxi16})
-STACK_EFFECT_BREAKPOINT_OPCODES: Final[frozenset[Opcode]] = frozenset({Opcode.Bkpt, Opcode.BkptLine})
-STACK_EFFECT_NEXT_OPCODES: Final[frozenset[Opcode]] = frozenset({Opcode.NextName, Opcode.NextValue})
-SCOPE_EFFECT_PUSH_OPCODES: Final[frozenset[Opcode]] = frozenset({Opcode.PushScope, Opcode.PushWith})
+STACK_EFFECT_SIGN_EXTEND_OPCODES: Final[frozenset[Opcode]] = frozenset(
+    {Opcode.Sxi1, Opcode.Sxi8, Opcode.Sxi16}
+)
+STACK_EFFECT_BREAKPOINT_OPCODES: Final[frozenset[Opcode]] = frozenset(
+    {Opcode.Bkpt, Opcode.BkptLine}
+)
+STACK_EFFECT_NEXT_OPCODES: Final[frozenset[Opcode]] = frozenset(
+    {Opcode.NextName, Opcode.NextValue}
+)
+SCOPE_EFFECT_PUSH_OPCODES: Final[frozenset[Opcode]] = frozenset(
+    {Opcode.PushScope, Opcode.PushWith}
+)
 
 STACK_EFFECT_STATIC_BY_OPCODE: Final[dict[Opcode, tuple[int, int]]] = (
     dict(STACK_EFFECT_OVERRIDES)
@@ -565,13 +581,19 @@ for _opcode, (_pops, _pushes) in DYNAMIC_STACK_HINTS.items():
     _set_info(_opcode, stack_pops=_pops, stack_pushes=_pushes)
 
 OPCODE_INFO_TABLE: Final[tuple[OpcodeInfo, ...]] = tuple(_registry)
-OPERAND_FORM_BY_OPCODE: Final[tuple[int, ...]] = tuple(info.operand_form for info in OPCODE_INFO_TABLE)
-POOL_KIND_BY_OPCODE: Final[tuple[PoolKind | None, ...]] = tuple(info.pool_kind for info in OPCODE_INFO_TABLE)
+OPERAND_FORM_BY_OPCODE: Final[tuple[int, ...]] = tuple(
+    info.operand_form for info in OPCODE_INFO_TABLE
+)
+POOL_KIND_BY_OPCODE: Final[tuple[PoolKind | None, ...]] = tuple(
+    info.pool_kind for info in OPCODE_INFO_TABLE
+)
 
 _stack_effect_static_table: list[tuple[int, int] | None] = [None] * 256
 for _opcode, _effect in STACK_EFFECT_STATIC_BY_OPCODE.items():
     _stack_effect_static_table[_opcode.value] = _effect
-STACK_EFFECT_STATIC_TABLE: Final[tuple[tuple[int, int] | None, ...]] = tuple(_stack_effect_static_table)
+STACK_EFFECT_STATIC_TABLE: Final[tuple[tuple[int, int] | None, ...]] = tuple(
+    _stack_effect_static_table
+)
 
 
 def opcode_info(opcode: Opcode | int) -> OpcodeInfo:

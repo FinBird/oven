@@ -1,7 +1,14 @@
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Dict, Any, TYPE_CHECKING, cast
 
-from .enums import Index, TraitKind
+from .enums import (
+    Index,
+    TraitKind,
+    TraitDict,
+    InstanceInfoDict,
+    ClassInfoDict,
+    ScriptInfoDict,
+)
 
 if TYPE_CHECKING:
     from .constant_pool import ConstantPool
@@ -10,6 +17,7 @@ if TYPE_CHECKING:
 @dataclass
 class Trait:
     """Trait data model for class/object fixed members."""
+
     name: str  # Resolved trait name.
     kind: TraitKind
     metadata: List[str]  # Resolved metadata names.
@@ -17,14 +25,14 @@ class Trait:
     is_override: bool = False
     data: Optional[Dict[str, Any]] = None
 
-    def to_dict(self, pool: Optional['ConstantPool'] = None) -> Dict[str, Any]:
+    def to_dict(self, pool: Optional["ConstantPool"] = None) -> TraitDict:
         """Return a serializable dictionary."""
-        trait_dict = {
+        trait_dict: Dict[str, Any] = {
             "name": self.name,
             "kind": self.kind.name,
             "metadata": self.metadata,
             "is_final": self.is_final,
-            "is_override": self.is_override
+            "is_override": self.is_override,
         }
 
         if self.data:
@@ -39,13 +47,13 @@ class Trait:
                         data_dict[key] = value.value
                     else:
                         data_dict[key] = value.value
-                elif hasattr(value, 'to_dict'):
+                elif hasattr(value, "to_dict"):
                     data_dict[key] = value.to_dict()
                 else:
                     data_dict[key] = value
             trait_dict["data"] = data_dict
 
-        return trait_dict
+        return cast(TraitDict, trait_dict)
 
     def __repr__(self) -> str:
         base = f"Trait({self.name}: {self.kind.name}"
@@ -61,6 +69,7 @@ class Trait:
 @dataclass
 class InstanceInfo:
     """Immutable instance information."""
+
     name: str  # Resolved class name.
     super_name: str  # Resolved superclass name.
     is_sealed: bool
@@ -71,7 +80,7 @@ class InstanceInfo:
     init_method: int  # Initializer method index.
     traits: List[Trait]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> InstanceInfoDict:
         return {
             "name": self.name,
             "super_name": self.super_name,
@@ -81,7 +90,7 @@ class InstanceInfo:
             "protected_namespace": self.protected_namespace,
             "interfaces": self.interfaces,
             "init_method": self.init_method,
-            "traits": [trait.to_dict() for trait in self.traits]
+            "traits": [trait.to_dict() for trait in self.traits],
         }
 
     def __repr__(self) -> str:
@@ -91,13 +100,14 @@ class InstanceInfo:
 @dataclass
 class ClassInfo:
     """Immutable class information."""
+
     init_method: int  # Static initializer method index.
     traits: List[Trait]  # Static members.
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> ClassInfoDict:
         return {
             "init_method": self.init_method,
-            "traits": [trait.to_dict() for trait in self.traits]
+            "traits": [trait.to_dict() for trait in self.traits],
         }
 
     def __repr__(self) -> str:
@@ -107,13 +117,14 @@ class ClassInfo:
 @dataclass
 class ScriptInfo:
     """Immutable script information."""
+
     init_method: int  # Script initializer method index.
     traits: List[Trait]  # Script-level definitions.
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> ScriptInfoDict:
         return {
             "init_method": self.init_method,
-            "traits": [trait.to_dict() for trait in self.traits]
+            "traits": [trait.to_dict() for trait in self.traits],
         }
 
     def __repr__(self) -> str:

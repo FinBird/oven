@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import TYPE_CHECKING, NamedTuple, Optional
+from typing import TYPE_CHECKING, Literal, NamedTuple, Optional, TypeAlias
 
 from .enums import EdgeKind
 from .exceptions import InvalidABCCodeError

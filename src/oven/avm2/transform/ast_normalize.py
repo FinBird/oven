@@ -5,7 +5,7 @@ from oven.core.pipeline import Transform, Pipeline
 from oven.core.ast import NodeVisitor, Node
 
 
-class ASTNormalize(Transform, NodeVisitor):
+class ASTNormalize(Transform[Any, Any], NodeVisitor):
     """
     AST Normalization Transformation.
     Refactored from Furnace::AVM2::Transform::ASTNormalize (Ruby).
@@ -43,23 +43,43 @@ class ASTNormalize(Transform, NodeVisitor):
         ast = args[0]
         if isinstance(ast, Node):
             self.visit(ast)
+            # Remove trailing return_void from method bodies
+            self._remove_trailing_returns(ast)
 
         if len(args) == 1:
             return ast
 
         return args
 
+    def _remove_trailing_returns(self, node: Node) -> None:
+        """Remove trailing return_void statements from the end of begin blocks."""
+        if node.type == "begin" and node.children:
+            # Check if the last child is a return_void
+            last_child = node.children[-1]
+            if isinstance(last_child, Node) and last_child.type == "return_void":
+                # Remove the trailing return_void
+                node.children.pop()
+        # Recursively process all child nodes
+        for child in node.children:
+            if isinstance(child, Node):
+                self._remove_trailing_returns(child)
+
     # (pop x) -> (expand x (nop))
     def on_pop(self, node: Node) -> None:
         child = node.children[0]
 
+        # Special case: pop(delete(...)) -> delete(...) as statement
+        if isinstance(child, Node) and child.type == "delete":
+            # Replace pop with the delete node directly
+            node.update(
+                node_type="delete", children=child.children, metadata=child.metadata
+            )
+            return
+
         # Create a NOP node copying metadata from the current node
         nop_node = Node("nop", metadata=node.metadata.copy())
 
-        node.update(
-            node_type="expand",
-            children=[child, nop_node]
-        )
+        node.update(node_type="expand", children=[child, nop_node])
 
     # (call-property-void *) -> (call-property *)
     def on_call_property_void(self, node: Node) -> None:
@@ -88,7 +108,7 @@ class ASTNormalize(Transform, NodeVisitor):
 
         # Case 2: Parent is a ternary operator without comparison logic yet,
         # and this node is in the condition position (index 1).
-        elif parent and parent.type == "ternary_if" and node.index == 1:
+        elif parent and parent.type == "ternary_if" and node.index_in_parent == 1:
             self._transform_conditional(node, comp, reverse)
             parent.update(node_type="ternary_if_boolean")
 
@@ -118,7 +138,9 @@ class ASTNormalize(Transform, NodeVisitor):
                 # Return a closure bound to the specific configuration
                 return lambda node: self._handle_if_logic(node, reverse, comp)
 
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}'"
+        )
 
     # (ternary-if * (op a b x y)) -> (ternary-if-boolean * (op a b) x y)
     def on_ternary_if(self, node: Node) -> None:
@@ -183,37 +205,35 @@ class ASTNormalize(Transform, NodeVisitor):
 
 
 if __name__ == "__main__":
+
     def print_ast(node: Node) -> None:
         print(f"Result AST: {node.to_sexp()}")
-
 
     def example_pop_expansion() -> None:
         print("--- Example 1: POP Expansion ---")
         # Input: (pop (int 1))
         # Rule: (pop x) -> (expand x (nop))
-        ast = Node("pop", children=[
-            Node("int", metadata={"val": 1})
-        ])
+        ast = Node("pop", children=[Node("int", metadata={"val": 1})])
 
         print(f"Original:\n{ast.to_sexp()}")
 
         # Run through the pipeline entrypoint (simulating Furnace usage).
-        pipeline = Pipeline([
-            ASTNormalize()
-        ])
+        pipeline = Pipeline([ASTNormalize()])
 
         pipeline.transform(ast)
         print(f"Transformed:\n{ast.to_sexp()}")
-
 
     def example_boolean_fix() -> None:
         print("\n--- Example 2: Boolean Coercion Removal ---")
         # Input: (and (coerce_b (local a)) (local b))
         # Rule: unwrap coerce_b nodes.
-        ast = Node("and", children=[
-            Node("coerce_b", children=[Node("local", children=["a"])]),
-            Node("local", children=["b"])
-        ])
+        ast = Node(
+            "and",
+            children=[
+                Node("coerce_b", children=[Node("local", children=["a"])]),
+                Node("local", children=["b"]),
+            ],
+        )
 
         print(f"Original:\n{ast.to_sexp()}")
 
@@ -222,22 +242,24 @@ if __name__ == "__main__":
 
         print(f"Transformed:\n{ast.to_sexp()}")
 
-
     def example_conditional_normalization() -> None:
         print("\n--- Example 3: Conditional Normalization (if_nge) ---")
         # Input: (jump_if false (if_nge (local a) (local b)) target)
         # Rule: if_nge -> >= and flip parent boolean flag from false to true.
 
-        condition_node = Node("if_nge", children=[
-            Node("local", children=["a"]),
-            Node("local", children=["b"])
-        ])
+        condition_node = Node(
+            "if_nge",
+            children=[Node("local", children=["a"]), Node("local", children=["b"])],
+        )
 
-        root = Node("jump_if", children=[
-            False,  # flag
-            condition_node,  # condition
-            "target_label"  # target
-        ])
+        root = Node(
+            "jump_if",
+            children=[
+                False,  # flag
+                condition_node,  # condition
+                "target_label",  # target
+            ],
+        )
 
         # Build parent pointers (normalization relies on parent links).
         root.normalize_hierarchy()
@@ -254,4 +276,3 @@ if __name__ == "__main__":
     example_pop_expansion()
     example_boolean_fix()
     example_conditional_normalization()
-

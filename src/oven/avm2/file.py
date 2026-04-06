@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING, cast
 
 from .config import ParseMode, VerifyConfig, VerifyProfile
 from .constant_pool import ConstantPool
@@ -16,14 +16,12 @@ if TYPE_CHECKING:
 @dataclass
 class MetadataItem:
     """Immutable metadata item."""
+
     key: Optional[str]
     value: str
 
     def to_dict(self) -> MetadataItemDict:
-        return {
-            "key": self.key,
-            "value": self.value
-        }
+        return {"key": self.key, "value": self.value}
 
     def __repr__(self) -> str:
         if self.key:
@@ -34,14 +32,12 @@ class MetadataItem:
 @dataclass
 class MetadataInfo:
     """Immutable metadata block."""
+
     name: str
     items: List[MetadataItem]
 
     def to_dict(self) -> MetadataInfoDict:
-        return {
-            "name": self.name,
-            "items": [item.to_dict() for item in self.items]
-        }
+        return {"name": self.name, "items": [item.to_dict() for item in self.items]}
 
     def __repr__(self) -> str:
         return f"MetadataInfo({self.name}, {len(self.items)} items)"
@@ -50,20 +46,87 @@ class MetadataInfo:
 @dataclass
 class ABCFile:
     """Immutable core ABC data model."""
+
     AS3_KEYWORDS = frozenset(
         [
             # Lexical keywords
-            "as", "break", "case", "catch", "class", "const", "continue", "default", "delete",
-            "do", "else", "extends", "false", "finally", "for", "function", "if", "implements",
-            "import", "in", "instanceof", "interface", "internal", "is", "native", "new",
-            "null", "package", "private", "protected", "public", "return", "super", "switch",
-            "this", "throw", "to", "true", "try", "typeof", "use", "var", "void", "while", "with",
+            "as",
+            "break",
+            "case",
+            "catch",
+            "class",
+            "const",
+            "continue",
+            "default",
+            "delete",
+            "do",
+            "else",
+            "extends",
+            "false",
+            "finally",
+            "for",
+            "function",
+            "if",
+            "implements",
+            "import",
+            "in",
+            "instanceof",
+            "interface",
+            "internal",
+            "is",
+            "native",
+            "new",
+            "null",
+            "package",
+            "private",
+            "protected",
+            "public",
+            "return",
+            "super",
+            "switch",
+            "this",
+            "throw",
+            "to",
+            "true",
+            "try",
+            "typeof",
+            "use",
+            "var",
+            "void",
+            "while",
+            "with",
             # Syntactical keywords
-            "each", "get", "set", "namespace", "include", "dynamic", "final", "override", "static",
+            "each",
+            "get",
+            "set",
+            "namespace",
+            "include",
+            "dynamic",
+            "final",
+            "override",
+            "static",
             # Future reserved words
-            "abstract", "boolean", "byte", "cast", "char", "debugger", "double", "enum", "export",
-            "float", "goto", "intrinsic", "long", "prototype", "short", "synchronized", "throws",
-            "transient", "type", "virtual", "volatile",
+            "abstract",
+            "boolean",
+            "byte",
+            "cast",
+            "char",
+            "debugger",
+            "double",
+            "enum",
+            "export",
+            "float",
+            "goto",
+            "intrinsic",
+            "long",
+            "prototype",
+            "short",
+            "synchronized",
+            "throws",
+            "transient",
+            "type",
+            "virtual",
+            "volatile",
         ]
     )
 
@@ -95,7 +158,7 @@ class ABCFile:
             "instances": [instance.to_dict() for instance in self.instances],
             "classes": [cls.to_dict() for cls in self.classes],
             "scripts": [script.to_dict() for script in self.scripts],
-            "method_bodies": [body.to_dict(pool) for body in self.method_bodies]
+            "method_bodies": [body.to_dict(pool) for body in self.method_bodies],
         }
 
     @classmethod
@@ -118,7 +181,7 @@ class ABCFile:
         lattice_depth_policy: str | None = None,
         lattice_conflict_policy: str | None = None,
         lattice_any_policy: str | None = None,
-    ) -> 'ABCFile':
+    ) -> "ABCFile":
         """Parse an ABC file from bytes with compatibility options."""
         resolved: VerifyConfig | None = None
         if verify_profile is not None:
@@ -145,7 +208,9 @@ class ABCFile:
                 relax_join_types = resolved.relax_join_types
             if prefer_precise_any_join is None:
                 prefer_precise_any_join = resolved.prefer_precise_any_join
-            verify_stack = verify_stack or verify_stack_semantics or verify_branch_targets
+            verify_stack = (
+                verify_stack or verify_stack_semantics or verify_branch_targets
+            )
         else:
             if verify_stack_semantics is None:
                 verify_stack_semantics = verify_stack
@@ -170,7 +235,9 @@ class ABCFile:
             elif policy == "strict":
                 relax_join_depth = False
             else:
-                raise ValueError(f"Unsupported lattice_depth_policy: {lattice_depth_policy}")
+                raise ValueError(
+                    f"Unsupported lattice_depth_policy: {lattice_depth_policy}"
+                )
 
         if lattice_conflict_policy is not None:
             policy = str(lattice_conflict_policy).strip().lower()
@@ -179,7 +246,9 @@ class ABCFile:
             elif policy == "strict":
                 relax_join_types = False
             else:
-                raise ValueError(f"Unsupported lattice_conflict_policy: {lattice_conflict_policy}")
+                raise ValueError(
+                    f"Unsupported lattice_conflict_policy: {lattice_conflict_policy}"
+                )
 
         if lattice_any_policy is not None:
             policy = str(lattice_any_policy).strip().lower()
@@ -188,9 +257,12 @@ class ABCFile:
             elif policy == "widen":
                 prefer_precise_any_join = False
             else:
-                raise ValueError(f"Unsupported lattice_any_policy: {lattice_any_policy}")
+                raise ValueError(
+                    f"Unsupported lattice_any_policy: {lattice_any_policy}"
+                )
 
         from .abc.reader import ABCReader
+
         reader = ABCReader(
             data,
             strict_metadata_indices=strict_metadata_indices,
@@ -207,9 +279,11 @@ class ABCFile:
         return reader.read_abc_file()
 
     def __repr__(self) -> str:
-        return (f"ABCFile(v{self.major_version}.{self.minor_version}, "
-                f"methods={len(self.methods)}, classes={len(self.classes)}, "
-                f"scripts={len(self.scripts)})")
+        return (
+            f"ABCFile(v{self.major_version}.{self.minor_version}, "
+            f"methods={len(self.methods)}, classes={len(self.classes)}, "
+            f"scripts={len(self.scripts)})"
+        )
 
     def _build_method_body_index(self) -> None:
         self._method_body_indexes = {body.method: body for body in self.method_bodies}
@@ -221,7 +295,7 @@ class ABCFile:
         if self._method_body_indexes is None:
             self._build_method_body_index()
 
-        return self._method_body_indexes.get(method_index)
+        return cast(dict[int, MethodBody], self._method_body_indexes).get(method_index)
 
     def decompile(
         self,
@@ -233,7 +307,7 @@ class ABCFile:
         inline_vars: bool = False,
     ) -> str:
         """Decompile this parsed ABC in-memory."""
-        from .decompiler import _decompile_abc_parsed
+        from oven.avm2.decompiler import _decompile_abc_parsed
 
         return _decompile_abc_parsed(
             self,
@@ -252,6 +326,7 @@ class ABCFile:
         int_format: str = "dec",
         clean_output: bool = True,
         inline_vars: bool = False,
+        debug: bool = False,
     ) -> list[Path]:
         """Decompile this parsed ABC into `.as` files."""
         from .decompiler import _decompile_abc_parsed_to_files
@@ -263,6 +338,7 @@ class ABCFile:
             int_format=int_format,
             clean_output=clean_output,
             inline_vars=inline_vars,
+            insert_debug_comments=debug,
         )
 
     def fix_names(self) -> None:
@@ -290,12 +366,14 @@ class ABCFile:
                 continue
 
             name_ref = data.get("name")
-            if hasattr(name_ref, "value"):
+            if name_ref is not None and hasattr(name_ref, "value"):
                 self._fix_name_index(int(name_ref.value), name_set)
             elif isinstance(name_ref, int):
                 self._fix_name_index(name_ref, name_set)
 
-    def _fix_name_index(self, name_idx: int, name_set: set[str], is_namespace: bool = False) -> None:
+    def _fix_name_index(
+        self, name_idx: int, name_set: set[str], is_namespace: bool = False
+    ) -> None:
         if name_idx <= 0 or name_idx > len(self.constant_pool.strings):
             return
 
@@ -341,36 +419,36 @@ class ABCFile:
         lines.append(f"  Metadata: {len(self.metadata)}")
         lines.append(f"  Instances: {len(self.instances)}")
         lines.append(f"  Method Bodies: {len(self.method_bodies)}")
-        
+
         # Print full constant-pool details.
         lines.append("\n" + str(self.constant_pool))
-        
+
         # Print each member block in full detail.
         if self.methods:
             lines.append("\n  Methods:")
             for i, method in enumerate(self.methods):
                 lines.append(f"    [{i}] {method}")
-        
+
         if self.classes:
             lines.append("\n  Classes:")
             for i, cls in enumerate(self.classes):
                 lines.append(f"    [{i}] {cls}")
-        
+
         if self.scripts:
             lines.append("\n  Scripts:")
             for i, script in enumerate(self.scripts):
                 lines.append(f"    [{i}] {script}")
-        
+
         if self.metadata:
             lines.append("\n  Metadata:")
             for i, meta in enumerate(self.metadata):
                 lines.append(f"    [{i}] {meta}")
-        
+
         if self.instances:
             lines.append("\n  Instances:")
             for i, instance in enumerate(self.instances):
                 lines.append(f"    [{i}] {instance}")
-        
+
         if self.method_bodies:
             lines.append("\n  Method Bodies:")
             for i, body in enumerate(self.method_bodies):
@@ -379,5 +457,5 @@ class ABCFile:
                 # Indent multiline blocks for readability.
                 indented_body = "\n    ".join(body_str.split("\n"))
                 lines.append(f"    [{i}] {indented_body}")
-        
+
         return "\n".join(lines)

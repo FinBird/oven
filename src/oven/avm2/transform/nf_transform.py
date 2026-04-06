@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from oven.core.pipeline import Transform
 from oven.core.ast import NodeVisitor, Node, m
 
 
-class NFNormalize(Transform, NodeVisitor):
+class NFNormalize(Transform[Any, Any], NodeVisitor):
     """
     Normal Form Normalization Transformation.
     Refactored from Furnace::AVM2::Transform::NFNormalize.
@@ -18,8 +18,6 @@ class NFNormalize(Transform, NodeVisitor):
 
         nf = args[0]
         if isinstance(nf, Node):
-            # Normalize hierarchy to ensure parent pointers are valid for upward search
-            nf.normalize_hierarchy()
             self.nf = nf
 
             self.visit(nf)
@@ -31,7 +29,6 @@ class NFNormalize(Transform, NodeVisitor):
                 return self.nf
 
             return self.nf, *args[1:]
-
 
         return args
 
@@ -48,12 +45,19 @@ class NFNormalize(Transform, NodeVisitor):
         return False
 
     def _is_terminating_if(self, node: Node) -> bool:
-        """Check if an if node is terminating (both branches terminate)."""
-        if node.type != "if" or len(node.children) < 3:
+        """Check if an if node is terminating."""
+        if node.type != "if" or len(node.children) < 2:
             return False
         then_block = node.children[1]
-        else_block = node.children[2]
-        return self._is_terminating_block(then_block) and self._is_terminating_block(else_block)
+        if len(node.children) >= 3:
+            # If-else: both branches must terminate
+            else_block = node.children[2]
+            return self._is_terminating_block(
+                then_block
+            ) and self._is_terminating_block(else_block)
+        else:
+            # If without else: then branch must terminate
+            return self._is_terminating_block(then_block)
 
     def _is_terminating_block(self, node: Node) -> bool:
         """Check if a block (begin node) is terminating."""
@@ -72,21 +76,26 @@ class NFNormalize(Transform, NodeVisitor):
     def _remove_useless_return(self) -> None:
         if not self.nf.children:
             return
-        has_switch_labels = any((isinstance(child, Node) and child.type in {'case', 'default'} for child in self.nf.children))
+        has_switch_labels = any(
+            (
+                isinstance(child, Node) and child.type in {"case", "default"}
+                for child in self.nf.children
+            )
+        )
         if has_switch_labels:
             return
-        dead_types = {'return_void', 'return_value', 'break', 'continue', 'throw'}
+        dead_types = {"return_void", "return_value", "break", "continue", "throw"}
         first_terminal = -1
         for i, child in enumerate(self.nf.children):
             if isinstance(child, Node) and child.type in dead_types:
                 first_terminal = i
                 break
         if first_terminal != -1:
-            del self.nf.children[first_terminal + 1:]
+            del self.nf.children[first_terminal + 1 :]
 
         if self.nf.children:
             last = self.nf.children[-1]
-            if isinstance(last, Node) and last.type == 'return_void':
+            if isinstance(last, Node) and last.type == "return_void":
                 self.nf.children.pop()
 
     def on_nop(self, node: Node) -> None:
@@ -119,13 +128,18 @@ class NFNormalize(Transform, NodeVisitor):
 
     LocalIncDecGetterMatcher = m.one_of(
         m.of("get_slot", m.backref("index"), m.backref("scope")),
-        m.of("get_local", m.backref("index"))
+        m.of("get_local", m.backref("index")),
     )
 
     IncDecOperators = {
-        "pre_increment", "post_increment",
-        "pre_decrement", "post_decrement",
-        "add", "subtract", "add_i", "subtract_i"
+        "pre_increment",
+        "post_increment",
+        "pre_decrement",
+        "post_decrement",
+        "add",
+        "subtract",
+        "add_i",
+        "subtract_i",
     }
 
     IncDecOperatorMapping = {
@@ -154,11 +168,16 @@ class NFNormalize(Transform, NodeVisitor):
         if operator_type in {"coerce", "convert"}:
             # The actual operator is inside the inner node
             inner_inner = inner_captures.get("inner")
-            if isinstance(inner_inner, Node) and inner_inner.type in self.IncDecOperators:
+            if (
+                isinstance(inner_inner, Node)
+                and inner_inner.type in self.IncDecOperators
+            ):
                 operator_type = inner_inner.type
                 # Extract getter and operand from the inner-inner node
                 inner_inner_captures: dict[str, Any] = {}
-                if self.LocalIncDecInnerMatcher.match(inner_inner, inner_inner_captures):
+                if self.LocalIncDecInnerMatcher.match(
+                    inner_inner, inner_inner_captures
+                ):
                     inner_captures.update(inner_inner_captures)
             else:
                 return None
@@ -185,18 +204,26 @@ class NFNormalize(Transform, NodeVisitor):
         operator_type = str(captures["operator_type"])
 
         # Check if the getter matches the setter (e.g. i = i + 1)
-        if (isinstance(getter, Node) and
-                self.LocalIncDecGetterMatcher.match(getter, captures)):
-
+        if isinstance(getter, Node) and self.LocalIncDecGetterMatcher.match(
+            getter, captures
+        ):
             # Handle add/subtract operators - check operand value
             if operator_type in {"add", "subtract", "add_i", "subtract_i"}:
                 operand = captures.get("operand")
                 operand_val = self._index_value(operand)
-                
+
                 # Also check if operand is an integer node
-                if operand_val is None and isinstance(operand, Node) and operand.type == "integer":
-                    operand_val = self._index_value(operand.children[0]) if operand.children else None
-                
+                if (
+                    operand_val is None
+                    and isinstance(operand, Node)
+                    and operand.type == "integer"
+                ):
+                    operand_val = (
+                        self._index_value(operand.children[0])
+                        if operand.children
+                        else None
+                    )
+
                 # For add/subtract, check if operand is 1 or -1
                 if operand_val == 1:
                     if operator_type in {"add", "add_i"}:
@@ -213,7 +240,11 @@ class NFNormalize(Transform, NodeVisitor):
                     return
             else:
                 # Pre/post increment/decrement operators
-                target_type = f"{operator_type}_slot" if "scope" in captures else f"{operator_type}_local"
+                target_type = (
+                    f"{operator_type}_slot"
+                    if "scope" in captures
+                    else f"{operator_type}_local"
+                )
 
             children = [captures["index"]]
             if "scope" in captures:
@@ -229,10 +260,7 @@ class NFNormalize(Transform, NodeVisitor):
     # Loop Expansion (if -> while)
     # =========================================================================
 
-    ExpandedForInMatcher = m.of("if",
-                                m.of("has_next2", m.skip()),
-                                m.skip()
-                                )
+    ExpandedForInMatcher = m.of("if", m.of("has_next2", m.skip()), m.skip())
 
     def on_if(self, node: Node) -> None:
         if self.ExpandedForInMatcher.match(node, {}):
@@ -271,33 +299,41 @@ class NFNormalize(Transform, NodeVisitor):
     # For-In / For-Each-In Reconstruction
     # =========================================================================
 
-    ForInMatcher = m.of("while",
-                        m.of("has_next2", m.capture("object_reg"), m.capture("index_reg")),
-                        m.of("begin",
-                             m.seq(
-                                 m.one_of(
-                                     m.of("set_local", m.capture("value_reg")),
-                                     m.of("set_slot", m.capture("value_reg"), m.of("get_scope_object", m.eq(1)))
-                                 ),
-                                 m.seq(
-                                     m.one_of(m.of("coerce"), m.of("convert")),
-                                     m.capture("value_type"),
-                                     m.seq(
-                                         m.capture("iterator"),  # next_name or next_value
-                                         m.of("get_local", m.backref("object_reg")),
-                                         m.of("get_local", m.backref("index_reg"))
-                                     )
-                                 ),
-                                 m.rest("body")
-                             )
-                             )
-                        )
+    ForInMatcher = m.of(
+        "while",
+        m.of("has_next2", m.capture("object_reg"), m.capture("index_reg")),
+        m.of(
+            "begin",
+            m.seq(
+                m.one_of(
+                    m.of("set_local", m.capture("value_reg")),
+                    m.of(
+                        "set_slot",
+                        m.capture("value_reg"),
+                        m.of("get_scope_object", m.eq(1)),
+                    ),
+                ),
+                m.seq(
+                    m.one_of(m.of("coerce"), m.of("convert")),
+                    m.capture("value_type"),
+                    m.seq(
+                        m.capture("iterator"),  # next_name or next_value
+                        m.of("get_local", m.backref("object_reg")),
+                        m.of("get_local", m.backref("index_reg")),
+                    ),
+                ),
+                m.rest("body"),
+            ),
+        ),
+    )
 
-    ForInIndexMatcher = m.of("set_local", m.backref("index_reg"), m.of("integer", m.eq(0)))
+    ForInIndexMatcher = m.of(
+        "set_local", m.backref("index_reg"), m.of("integer", m.eq(0))
+    )
 
-    ForInObjectMatcher = m.of("set_local", m.backref("object_reg"),
-                              m.of("coerce", "any", m.capture("root"))
-                              )
+    ForInObjectMatcher = m.of(
+        "set_local", m.backref("object_reg"), m.of("coerce", "any", m.capture("root"))
+    )
 
     SuperfluousContinueMatcher = m.of("continue")
 
@@ -338,10 +374,9 @@ class NFNormalize(Transform, NodeVisitor):
         if isinstance(idx, int):
             return idx
         try:
-            parsed = int(value)  # type: ignore[arg-type]
+            return int(str(value))
         except (TypeError, ValueError):
             return None
-        return parsed
 
     def _unwrap_convert_chain(self, value: object) -> object:
         current = value
@@ -355,7 +390,11 @@ class NFNormalize(Transform, NodeVisitor):
             if current.type == "coerce_b" and current.children:
                 current = current.children[-1]
                 continue
-            if current.type in {"convert_i", "convert_u", "convert_d", "convert_s", "convert_o"} and current.children:
+            if (
+                current.type
+                in {"convert_i", "convert_u", "convert_d", "convert_s", "convert_o"}
+                and current.children
+            ):
                 current = current.children[-1]
                 continue
             break
@@ -421,9 +460,15 @@ class NFNormalize(Transform, NodeVisitor):
         alias_map[target] = alias_map[source]
         return True
 
-    def _extract_reg_reference(self, value: object, alias_map: dict[int, int]) -> int | None:
+    def _extract_reg_reference(
+        self, value: object, alias_map: dict[int, int]
+    ) -> int | None:
         inner = self._unwrap_convert_chain(value)
-        if not isinstance(inner, Node) or inner.type != "get_local" or not inner.children:
+        if (
+            not isinstance(inner, Node)
+            or inner.type != "get_local"
+            or not inner.children
+        ):
             return None
         source = self._index_value(inner.children[0])
         if source is None:
@@ -445,7 +490,12 @@ class NFNormalize(Transform, NodeVisitor):
             rhs = stmt.children[1]
         elif stmt.type == "set_slot" and len(stmt.children) >= 3:
             scope = stmt.children[1]
-            if not (isinstance(scope, Node) and scope.type == "get_scope_object" and scope.children and scope.children[0] == 1):
+            if not (
+                isinstance(scope, Node)
+                and scope.type == "get_scope_object"
+                and scope.children
+                and scope.children[0] == 1
+            ):
                 return None
             value_reg = stmt.children[0]
             rhs = stmt.children[2]
@@ -453,7 +503,11 @@ class NFNormalize(Transform, NodeVisitor):
             return None
 
         value_type, inner = self._extract_value_type_and_inner(rhs)
-        if not isinstance(inner, Node) or inner.type not in {"next_name", "next_value"} or len(inner.children) < 2:
+        if (
+            not isinstance(inner, Node)
+            or inner.type not in {"next_name", "next_value"}
+            or len(inner.children) < 2
+        ):
             return None
 
         obj_ref = self._extract_reg_reference(inner.children[0], alias_map)
@@ -463,12 +517,16 @@ class NFNormalize(Transform, NodeVisitor):
 
         return value_reg, value_type, inner.type
 
-    def _extract_for_in_captures(self, loop: Node) -> dict[str, object] | None:
+    def _extract_for_in_captures(self, loop: Node) -> dict[str, Any] | None:
         if loop.type != "while" or len(loop.children) < 2:
             return None
         condition = loop.children[0]
         body = loop.children[1]
-        if not (isinstance(condition, Node) and condition.type == "has_next2" and len(condition.children) >= 2):
+        if not (
+            isinstance(condition, Node)
+            and condition.type == "has_next2"
+            and len(condition.children) >= 2
+        ):
             return None
         if not isinstance(body, Node):
             return None
@@ -486,7 +544,9 @@ class NFNormalize(Transform, NodeVisitor):
         assignment_pos = 0
         while assignment_pos < len(statements):
             stmt = statements[assignment_pos]
-            if not isinstance(stmt, Node) or not self._match_alias_assignment(stmt, alias_map):
+            if not isinstance(stmt, Node) or not self._match_alias_assignment(
+                stmt, alias_map
+            ):
                 break
             assignment_pos += 1
 
@@ -509,7 +569,7 @@ class NFNormalize(Transform, NodeVisitor):
             "iterator": iterator_type,
             "value_reg": value_reg,
             "value_type": value_type,
-            "body": statements[assignment_pos + 1:],
+            "body": statements[assignment_pos + 1 :],
         }
 
     def _node_mentions_local(self, node: Node, local_index: int) -> bool:
@@ -526,9 +586,15 @@ class NFNormalize(Transform, NodeVisitor):
                 if obj_idx == local_index or key_idx == local_index:
                     return True
             elif current.type in {"for_in", "for_each_in"}:
-                if len(current.children) > 0 and self._index_value(current.children[0]) == local_index:
+                if (
+                    len(current.children) > 0
+                    and self._index_value(current.children[0]) == local_index
+                ):
                     return True
-                if len(current.children) > 2 and self._index_value(current.children[2]) == local_index:
+                if (
+                    len(current.children) > 2
+                    and self._index_value(current.children[2]) == local_index
+                ):
                     return True
 
             for child in current.children:
@@ -536,11 +602,15 @@ class NFNormalize(Transform, NodeVisitor):
                     stack.append(child)
         return False
 
-    def _has_extra_local_use(self, parent: Node, local_index: int, excluded_nodes: set[Node]) -> bool:
+    def _has_extra_local_use(
+        self, parent: Node, local_index: int, excluded_nodes: set[Node]
+    ) -> bool:
         for sibling in parent.children:
             if sibling in excluded_nodes:
                 continue
-            if isinstance(sibling, Node) and self._node_mentions_local(sibling, local_index):
+            if isinstance(sibling, Node) and self._node_mentions_local(
+                sibling, local_index
+            ):
                 return True
         return False
 
@@ -567,16 +637,20 @@ class NFNormalize(Transform, NodeVisitor):
         if not isinstance(stmt, Node):
             return None
 
-        if stmt.type in {
-            "post_increment_local",
-            "pre_increment_local",
-            "post_decrement_local",
-            "pre_decrement_local",
-            "inc_local",
-            "inc_local_i",
-            "dec_local",
-            "dec_local_i",
-        } and stmt.children:
+        if (
+            stmt.type
+            in {
+                "post_increment_local",
+                "pre_increment_local",
+                "post_decrement_local",
+                "pre_decrement_local",
+                "inc_local",
+                "inc_local_i",
+                "dec_local",
+                "dec_local_i",
+            }
+            and stmt.children
+        ):
             return self._index_value(stmt.children[0])
 
         if stmt.type == "set_local" and len(stmt.children) >= 2:
@@ -588,8 +662,12 @@ class NFNormalize(Transform, NodeVisitor):
                 return None
 
             if rhs.type in {"add", "add_i", "subtract", "subtract_i"}:
-                left = self._extract_reg_reference(rhs.children[0], {local_index: local_index})
-                right = self._extract_reg_reference(rhs.children[1], {local_index: local_index})
+                left = self._extract_reg_reference(
+                    rhs.children[0], {local_index: local_index}
+                )
+                right = self._extract_reg_reference(
+                    rhs.children[1], {local_index: local_index}
+                )
                 left_num = self._index_value(rhs.children[0])
                 right_num = self._index_value(rhs.children[1])
 
@@ -620,6 +698,8 @@ class NFNormalize(Transform, NodeVisitor):
         return False
 
     def _recover_for_loop(self, node: Node, parent: Node, enclosure: Node) -> bool:
+        if parent is None:
+            return False
         if node.type != "while" or len(node.children) < 2:
             return False
 
@@ -670,7 +750,11 @@ class NFNormalize(Transform, NodeVisitor):
                 continue
             if not isinstance(sibling, Node):
                 return False
-            if sibling.type == "set_local" and len(sibling.children) >= 2 and self._index_value(sibling.children[0]) == local_index:
+            if (
+                sibling.type == "set_local"
+                and len(sibling.children) >= 2
+                and self._index_value(sibling.children[0]) == local_index
+            ):
                 init_stmt = sibling
                 break
             if self._is_local_write_stmt(sibling, local_index):
@@ -692,10 +776,9 @@ class NFNormalize(Transform, NodeVisitor):
         node.update(metadata=metadata)
         return True
 
-    def on_while(self, node: Node, parent: Node | None = None, enclosure: Node | None = None) -> None:
-        parent = parent or node.parent
-        enclosure = enclosure or node
-
+    def on_while(
+        self, node: Node, parent: Node | None = None, enclosure: Node | None = None
+    ) -> None:
         # 1. Remove superfluous continue at end of body
         # node.children: [*whatever, code]
         if node.children:
@@ -704,6 +787,11 @@ class NFNormalize(Transform, NodeVisitor):
                 last_stmt = code.children[-1]
                 if self.SuperfluousContinueMatcher.match(last_stmt, {}):
                     code.children.pop()
+
+        parent = parent or node.parent
+        if parent is None:
+            return
+        enclosure = enclosure or node
 
         # 1.5 Recover canonical for(init; cond; update) from while when safe.
         if self._recover_for_loop(node, parent, enclosure):
@@ -766,19 +854,23 @@ class NFNormalize(Transform, NodeVisitor):
             # used by any sibling statement outside the loop reconstruction.
             if not self._has_extra_local_use(parent, index_reg, excluded):
                 index_node.update(node_type="remove")
-            if (
-                loop_type != "for_each_in"
-                and not self._has_extra_local_use(parent, object_reg, excluded)
+            if loop_type != "for_each_in" and not self._has_extra_local_use(
+                parent,
+                object_reg,
+                excluded,
             ):
                 object_node.update(node_type="remove")
 
             # Update loop node
-            node.update(node_type=loop_type, children=[
-                captures["value_reg"],
-                captures["value_type"],
-                object_reg,
-                Node("begin", children=captures["body"])
-            ])
+            node.update(
+                node_type=loop_type,
+                children=[
+                    captures["value_reg"],
+                    captures["value_type"],
+                    object_reg,
+                    Node("begin", children=cast(list[Any], captures["body"])),
+                ],
+            )
 
     # =========================================================================
     # Scope Folding (with) & Dead Code Removal
@@ -807,14 +899,14 @@ class NFNormalize(Transform, NodeVisitor):
                     with_stmt = node.children[with_begin]
                     with_scope = with_stmt.children[0] if with_stmt.children else None
                     # Extract content between push_with and pop_scope
-                    with_content = node.children[with_begin + 1: with_end]
+                    with_content = node.children[with_begin + 1 : with_end]
                     # Create with node
-                    with_node = Node("with", children=[
-                        with_scope,
-                        Node("begin", children=with_content)
-                    ])
+                    with_node = Node(
+                        "with",
+                        children=[with_scope, Node("begin", children=with_content)],
+                    )
                     # Replace the range with the with node
-                    node.children[with_begin: with_end + 1] = [with_node]
+                    node.children[with_begin : with_end + 1] = [with_node]
                     # Reset i to with_begin (now the new with node)
                     i = with_begin
                 else:
@@ -840,34 +932,60 @@ class NFNormalize(Transform, NodeVisitor):
                 if self._is_terminating(child):
                     first_terminating_index = i
                     break
-        
+
         if first_terminating_index != -1:
             # Remove everything after the first terminating node
-            del node.children[first_terminating_index + 1:]
+            del node.children[first_terminating_index + 1 :]
 
     # =========================================================================
     # Switch Optimization
     # =========================================================================
 
     _EqMatchSeed = m.one_of(
-        m.of('===', m.of('get_local', m.capture('local_index')), m.capture('case_value')),
-        m.of('===', m.capture('case_value'), m.of('get_local', m.capture('local_index'))),
-        m.of('==', m.of('get_local', m.capture('local_index')), m.capture('case_value')),
-        m.of('==', m.capture('case_value'), m.of('get_local', m.capture('local_index')))
+        m.of(
+            "===", m.of("get_local", m.capture("local_index")), m.capture("case_value")
+        ),
+        m.of(
+            "===", m.capture("case_value"), m.of("get_local", m.capture("local_index"))
+        ),
+        m.of(
+            "==", m.of("get_local", m.capture("local_index")), m.capture("case_value")
+        ),
+        m.of(
+            "==", m.capture("case_value"), m.of("get_local", m.capture("local_index"))
+        ),
     )
 
-    OptimizedSwitchSeed = m.of('ternary', _EqMatchSeed, m.of('integer', m.capture('case_index')), m.capture('nested'))
+    OptimizedSwitchSeed = m.of(
+        "ternary",
+        _EqMatchSeed,
+        m.of("integer", m.capture("case_index")),
+        m.capture("nested"),
+    )
 
     _EqMatchNested = m.one_of(
-        m.of('===', m.capture('case_value'), m.of('get_local', m.backref('local_index'))),
-        m.of('===', m.of('get_local', m.backref('local_index')), m.capture('case_value')),
-        m.of('==', m.capture('case_value'), m.of('get_local', m.backref('local_index'))),
-        m.of('==', m.of('get_local', m.backref('local_index')), m.capture('case_value'))
+        m.of(
+            "===", m.capture("case_value"), m.of("get_local", m.backref("local_index"))
+        ),
+        m.of(
+            "===", m.of("get_local", m.backref("local_index")), m.capture("case_value")
+        ),
+        m.of(
+            "==", m.capture("case_value"), m.of("get_local", m.backref("local_index"))
+        ),
+        m.of(
+            "==", m.of("get_local", m.backref("local_index")), m.capture("case_value")
+        ),
     )
 
     OptimizedSwitchNested = m.one_of(
-        m.of('ternary', _EqMatchNested, m.of('integer', m.capture('case_index')), m.capture('nested')),
-        m.of('integer', m.capture('default_index'))
+        m.of(
+            "ternary",
+            _EqMatchNested,
+            m.of("integer", m.capture("case_index")),
+            m.capture("nested"),
+        ),
+        m.of("integer", m.capture("default_index")),
     )
 
     NumericCase = m.of("case", m.of("integer", m.capture("index")))
@@ -906,7 +1024,7 @@ class NFNormalize(Transform, NodeVisitor):
         condition = node.children[0]
         body = node.children[1]
 
-        captures = {}
+        captures: dict[str, object] = {}
         # 1. Match the seed (root ternary)
         if self.OptimizedSwitchSeed.match(condition, captures):
             mapping = {captures["case_index"]: captures["case_value"]}
@@ -943,7 +1061,7 @@ class NFNormalize(Transform, NodeVisitor):
             # 3. Map switch body cases to values
             for child in body.children:
                 # We need a fresh capture dict for checking the Case node
-                case_caps = {}
+                case_caps: dict[str, object] = {}
                 if self.NumericCase.match(child, case_caps):
                     case_idx = case_caps["index"]
 
@@ -981,23 +1099,27 @@ class NFNormalize(Transform, NodeVisitor):
         if isinstance(body, Node):
             self._prune_unreachable_inside_switch_body(body)
 
+
 if __name__ == "__main__":
+
     def print_diff(title: str, original: Node, transformed: Node) -> None:
         print(f"\n{'=' * 10} {title} {'=' * 10}")
         print(f"[Before]: {original.to_sexp()}")
         print(f"[After] : {transformed.to_sexp()}")
-
 
     def example_useless_return() -> None:
         """Example 1: remove trailing return_void in function body."""
         # Build AST: (function (begin (instruction) (return_void)))
         # NFNormalize works on the top-level body node.
 
-        code_body = Node("begin", children=[
-            Node("get_local", children=[0]),
-            Node("push_scope"),
-            Node("return_void")  # This trailing return is removable.
-        ])
+        code_body = Node(
+            "begin",
+            children=[
+                Node("get_local", children=[0]),
+                Node("push_scope"),
+                Node("return_void"),  # This trailing return is removable.
+            ],
+        )
 
         # Keep a root reference used by remove_useless_return.
         root = code_body
@@ -1007,10 +1129,14 @@ if __name__ == "__main__":
         # Execute transform in-place.
         normalizer.transform(root)
 
-        print_diff("Remove Useless Return",
-                   Node("begin", children=[Node("get_local"), Node("push_scope"), Node("return_void")]),
-                   root)
-
+        print_diff(
+            "Remove Useless Return",
+            Node(
+                "begin",
+                children=[Node("get_local"), Node("push_scope"), Node("return_void")],
+            ),
+            root,
+        )
 
     def example_dead_code_and_with() -> None:
         """Example 2: fold with-scope and remove dead code after return."""
@@ -1019,20 +1145,19 @@ if __name__ == "__main__":
         # 2. Nodes after return_void should be removed.
         scope_object = Node("get_scope_object", children=[1])
 
-        ast = Node("begin", children=[
-            # --- With Block Start ---
-            Node("push_with", children=[scope_object]),
-
-            Node("call_something"),
-
-            Node("pop_scope"),
-            # --- With Block End ---
-
-            Node("return_void"),  # Control-flow stop point.
-
-            Node("dead_code_1"),  # All following nodes are dead code.
-            Node("dead_code_2")
-        ])
+        ast = Node(
+            "begin",
+            children=[
+                # --- With Block Start ---
+                Node("push_with", children=[scope_object]),
+                Node("call_something"),
+                Node("pop_scope"),
+                # --- With Block End ---
+                Node("return_void"),  # Control-flow stop point.
+                Node("dead_code_1"),  # All following nodes are dead code.
+                Node("dead_code_2"),
+            ],
+        )
 
         print(f"\n{'=' * 10} Dead Code & With Folding {'=' * 10}")
         print(f"[Before]:\n{ast.to_sexp()}")

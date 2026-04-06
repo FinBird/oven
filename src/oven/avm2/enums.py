@@ -7,11 +7,7 @@ from typing import (
     Generic,
     TypedDict,
     Literal,
-    Union,
-    Optional,
-    List,
-    Tuple,
-    Dict,
+    TypeAlias,
 )
 from typing import TYPE_CHECKING, Any
 
@@ -27,14 +23,14 @@ class Index(Generic[T]):
     def __init__(self, value: int):
         self.value = value
 
-    def resolve(self, pool: "ConstantPool", kind_hint: str = None) -> Any:
+    def resolve(self, pool: "ConstantPool", kind_hint: str | None = None) -> Any:
         """Resolve the wrapped index into an actual pool value."""
         if pool is None or self.value == 0:
             return self.value
         return pool.resolve_index(self.value, kind_hint)
 
     def to_dict(
-        self, pool: Optional["ConstantPool"] = None, kind_hint: str = None
+        self, pool: "ConstantPool | None" = None, kind_hint: str | None = None
     ) -> Any:
         """Return serializable value or resolved value when pool is provided."""
         if pool:
@@ -326,7 +322,7 @@ class EdgeKind(str, Enum):
 # TypedDicts used for serialized outputs.
 class DefaultValueDict(TypedDict):
     kind: int
-    value: Union[int, None, bool, str]
+    value: int | None | bool | str
 
 
 class NamespaceDict(TypedDict):
@@ -359,21 +355,21 @@ class MultinameMultinameLDict(TypedDict):
 class MultinameTypeNameDict(TypedDict):
     kind: Literal["TYPENAME"]
     base_type: int
-    parameters: List[int]
+    parameters: list[int]
 
 
 class MultinameRTQNameLDict(TypedDict):
     kind: Literal["RTQNameL", "RTQNameLA"]
 
 
-MultinameDict = Union[
-    MultinameQNameDict,
-    MultinameRTQNameDict,
-    MultinameMultinameDict,
-    MultinameMultinameLDict,
-    MultinameRTQNameLDict,
-    MultinameTypeNameDict,
-]
+MultinameDict: TypeAlias = (
+    MultinameQNameDict
+    | MultinameRTQNameDict
+    | MultinameMultinameDict
+    | MultinameMultinameLDict
+    | MultinameRTQNameLDict
+    | MultinameTypeNameDict
+)
 
 
 @dataclass
@@ -381,7 +377,7 @@ class DefaultValue:
     """Immutable default-value model for method parameters."""
 
     kind: ConstantKind
-    value: Union[int, Index, None, bool, str]
+    value: int | Index[Any] | None | bool | str
 
     def to_dict(self) -> DefaultValueDict:
         if isinstance(self.value, Index):
@@ -395,17 +391,17 @@ class DefaultValue:
 
 class MethodParamDict(TypedDict):
     kind: int
-    name: Optional[str]
-    default_value: Optional[DefaultValueDict]
+    name: str | None
+    default_value: DefaultValueDict | None
 
 
 class MethodDict(TypedDict):
     name: str
-    params: List[MethodParamDict]
+    params: list[MethodParamDict]
     return_type: str
     flags: int
-    flags_described: List[str]
-    body: Optional[int]
+    flags_described: list[str]
+    body: int | None
 
 
 class ExceptionDict(TypedDict):
@@ -419,10 +415,10 @@ class ExceptionDict(TypedDict):
 class TraitDict(TypedDict):
     name: str
     kind: str
-    metadata: List[str]
+    metadata: list[str]
     is_final: bool
     is_override: bool
-    data: Optional[Dict[str, Any]]
+    data: dict[str, Any] | None
 
 
 class InstanceInfoDict(TypedDict):
@@ -431,38 +427,38 @@ class InstanceInfoDict(TypedDict):
     is_sealed: bool
     is_final: bool
     is_interface: bool
-    protected_namespace: Optional[str]
-    interfaces: List[str]
+    protected_namespace: str | None
+    interfaces: list[str]
     init_method: int
-    traits: List[TraitDict]
+    traits: list[TraitDict]
 
 
 class ClassInfoDict(TypedDict):
     init_method: int
-    traits: List[TraitDict]
+    traits: list[TraitDict]
 
 
 class ScriptInfoDict(TypedDict):
     init_method: int
-    traits: List[TraitDict]
+    traits: list[TraitDict]
 
 
 class MetadataItemDict(TypedDict):
-    key: Optional[str]
+    key: str | None
     value: str
 
 
 class MetadataInfoDict(TypedDict):
     name: str
-    items: List[MetadataItemDict]
+    items: list[MetadataItemDict]
 
 
-OperandType = Union[int, str, List[int], Tuple[int, int], bool, None]
+OperandType: TypeAlias = int | str | float | bool | list[int] | tuple[int, int] | None
 
 
 class InstructionDict(TypedDict):
     opcode: str
-    operands: List[OperandType]
+    operands: list[Any]
     offset: int
 
 
@@ -471,10 +467,10 @@ class Instruction:
     """Immutable bytecode-instruction model."""
 
     opcode: Opcode
-    operands: List[OperandType]
+    operands: list[Any]
     offset: int = 0
 
-    def to_dict(self, pool: Optional["ConstantPool"] = None) -> InstructionDict:
+    def to_dict(self, pool: "ConstantPool | None" = None) -> InstructionDict:
         return {
             "opcode": self.opcode.name,
             "operands": self.operands,
@@ -494,29 +490,29 @@ class MethodBodyDict(TypedDict):
     num_locals: int
     init_scope_depth: int
     max_scope_depth: int
-    code: List[int]
-    exceptions: List[ExceptionDict]
-    traits: List[TraitDict]
-    instructions: List[InstructionDict]
+    code: list[int]
+    exceptions: list[ExceptionDict]
+    traits: list[TraitDict]
+    instructions: list[InstructionDict]
 
 
 class ConstantPoolDict(TypedDict):
-    ints: List[int]
-    uints: List[int]
-    doubles: List[float]
-    strings: List[str]
-    namespaces: List[NamespaceDict]
-    namespace_sets: List[List[int]]
-    multinames: List[MultinameDict]
+    ints: list[int]
+    uints: list[int]
+    doubles: list[float]
+    strings: list[str]
+    namespaces: list[NamespaceDict]
+    namespace_sets: list[list[int]]
+    multinames: list[MultinameDict]
 
 
 class ABCFileDict(TypedDict):
     minor_version: int
     major_version: int
     constant_pool: ConstantPoolDict
-    methods: List[MethodDict]
-    metadata: List[MetadataInfoDict]
-    instances: List[InstanceInfoDict]
-    classes: List[ClassInfoDict]
-    scripts: List[ScriptInfoDict]
-    method_bodies: List[MethodBodyDict]
+    methods: list[MethodDict]
+    metadata: list[MetadataInfoDict]
+    instances: list[InstanceInfoDict]
+    classes: list[ClassInfoDict]
+    scripts: list[ScriptInfoDict]
+    method_bodies: list[MethodBodyDict]

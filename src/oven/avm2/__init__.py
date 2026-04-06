@@ -6,7 +6,13 @@ from pathlib import Path
 
 from oven.avm2.buffer import Buffer, BufferError
 from oven.avm2.config import ParseMode, VerifyProfile
-from oven.avm2.constant_pool import ConstantPool, Multiname, MultinameRef, NamespaceInfo, NamespaceSet
+from oven.avm2.constant_pool import (
+    ConstantPool,
+    Multiname,
+    MultinameRef,
+    NamespaceInfo,
+    NamespaceSet,
+)
 from oven.avm2.enums import (
     ConstantKind,
     DefaultValue,
@@ -26,7 +32,13 @@ from oven.avm2.exceptions import (
     TraitParseError,
 )
 from oven.avm2.file import ABCFile, MetadataInfo, MetadataItem
-from oven.avm2.methods import ExceptionInfo, MethodBody, MethodFlags, MethodInfo, MethodParam
+from oven.avm2.methods import (
+    ExceptionInfo,
+    MethodBody,
+    MethodFlags,
+    MethodInfo,
+    MethodParam,
+)
 from oven.avm2.abc.reader import ABCReader
 from oven.avm2.traits import ClassInfo, InstanceInfo, ScriptInfo, Trait
 
@@ -215,7 +227,7 @@ def _decompile_from_abc(
     int_format: str = "dec",
     inline_vars: bool = False,
 ) -> str:
-    from oven.api.decompiler import (
+    from oven.avm2.decompiler import (
         _decompile_abc_parsed as _decompile_abc_parsed,
     )
 
@@ -270,13 +282,16 @@ def decompile_method(
     inline_vars: bool = False,
 ) -> str:
     """Compatibility entrypoint: decompile a single MethodBody."""
-    from oven.api.decompiler import decompile_method as _decompile_method
+    from oven.avm2.decompiler import decompile_method as _decompile_method
+
+    from typing import cast
+    from oven.avm2.decompiler import MethodContext
 
     return _decompile_method(
         body,
         style=style,
         abc=abc,
-        method_context=method_context,
+        method_context=cast(MethodContext | None, method_context),
         int_format=int_format,
         inline_vars=inline_vars,
     )
@@ -311,9 +326,10 @@ def decompile_abc_to_files(
     int_format: str = "dec",
     clean_output: bool = True,
     inline_vars: bool = False,
+    debug: bool = False,
 ) -> list[Path]:
     """Compatibility entrypoint: decompile ABC bytes into .as files."""
-    from oven.api.decompiler import decompile_abc_to_files as _decompile_abc_to_files
+    from oven.avm2.decompiler import decompile_abc_to_files as _decompile_abc_to_files
 
     return _decompile_abc_to_files(
         abc_data,
@@ -322,6 +338,7 @@ def decompile_abc_to_files(
         int_format=int_format,
         clean_output=clean_output,
         inline_vars=inline_vars,
+        insert_debug_comments=debug,
     )
 
 
@@ -335,9 +352,10 @@ def decompile_to_files(
     int_format: str = "dec",
     clean_output: bool = True,
     inline_vars: bool = False,
+    debug: bool = False,
 ) -> list[Path]:
     """Decompile bytes/path/ABCFile and write class or script outputs to files."""
-    from oven.api.decompiler import _decompile_abc_parsed_to_files
+    from oven.avm2.decompiler import _decompile_abc_parsed_to_files
 
     if isinstance(target, ABCFile):
         abc = target
@@ -350,9 +368,10 @@ def decompile_to_files(
 
     return _decompile_abc_parsed_to_files(
         abc,
-        output_dir,
+        output_dir=output_dir,
         style=style,
         int_format=int_format,
         clean_output=clean_output,
         inline_vars=inline_vars,
+        insert_debug_comments=debug,
     )

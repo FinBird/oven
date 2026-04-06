@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import inspect
 from pathlib import Path
 import re
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 from . import parse_abc
 from .enums import Opcode, TraitKind
@@ -77,7 +77,7 @@ def _short_name(name: str) -> str:
     return name
 
 
-def _trait_method_names(traits) -> set[str]:
+def _trait_method_names(traits: list[Any]) -> set[str]:
     names: set[str] = set()
     for trait in traits:
         if trait.kind not in {TraitKind.METHOD, TraitKind.GETTER, TraitKind.SETTER}:
@@ -191,9 +191,15 @@ class JpexsAstDiffReport:
     class_diffs: tuple[ClassAstDiff, ...]
 
 
-def _load_asasm_class_ast(asasm_root: Path, class_asasm_paths: Iterable[Path] | None = None) -> dict[str, AsasmClassAst]:
+def _load_asasm_class_ast(
+    asasm_root: Path, class_asasm_paths: Iterable[Path] | None = None
+) -> dict[str, AsasmClassAst]:
     result: dict[str, AsasmClassAst] = {}
-    class_paths = sorted(asasm_root.rglob("*.class.asasm")) if class_asasm_paths is None else sorted(class_asasm_paths)
+    class_paths = (
+        sorted(asasm_root.rglob("*.class.asasm"))
+        if class_asasm_paths is None
+        else sorted(class_asasm_paths)
+    )
     for class_asasm in class_paths:
         class_name = _class_name_from_asasm_path(class_asasm)
         methods = tuple(sorted(_extract_asasm_trait_methods(class_asasm)))
@@ -211,7 +217,11 @@ def _load_parsed_class_ast(abc: ABCFile) -> dict[str, ParsedClassAst]:
     result: dict[str, ParsedClassAst] = {}
     for instance, cls in zip(abc.instances, abc.classes):
         class_name = _short_name(instance.name)
-        methods = tuple(sorted(_trait_method_names(instance.traits) | _trait_method_names(cls.traits)))
+        methods = tuple(
+            sorted(
+                _trait_method_names(instance.traits) | _trait_method_names(cls.traits)
+            )
+        )
         has_iinit = abc.method_body_at(instance.init_method) is not None
         has_cinit = abc.method_body_at(cls.init_method) is not None
         result[class_name] = ParsedClassAst(
@@ -325,8 +335,12 @@ def render_jpexs_ast_diff_markdown(report: JpexsAstDiffReport) -> str:
     lines.append("# JPEXS AST Diff Report")
     lines.append("")
     lines.append("Generated from:")
-    lines.append("- Parsed source: `as3_assembled-0.main.abc` via `parse_abc(..., mode='relaxed')`")
-    lines.append("- Reference source: JPEXS `as3_assembled-0.main.asasm` reachable `.class.asasm` trait/method declarations")
+    lines.append(
+        "- Parsed source: `as3_assembled-0.main.abc` via `parse_abc(..., mode='relaxed')`"
+    )
+    lines.append(
+        "- Reference source: JPEXS `as3_assembled-0.main.asasm` reachable `.class.asasm` trait/method declarations"
+    )
     lines.append("")
     lines.append("## Summary")
     lines.append("")
@@ -334,8 +348,12 @@ def render_jpexs_ast_diff_markdown(report: JpexsAstDiffReport) -> str:
     lines.append(f"- Matched classes: `{summary.matched_classes}`")
     lines.append(f"- Missing classes in parsed ABC: `{summary.missing_classes}`")
     lines.append(f"- Extra classes in parsed ABC: `{summary.extra_classes}`")
-    lines.append(f"- Classes with method-level diffs: `{summary.classes_with_method_diff}`")
-    lines.append(f"- Classes with init diffs (`iinit/cinit`): `{summary.classes_with_init_diff}`")
+    lines.append(
+        f"- Classes with method-level diffs: `{summary.classes_with_method_diff}`"
+    )
+    lines.append(
+        f"- Classes with init diffs (`iinit/cinit`): `{summary.classes_with_init_diff}`"
+    )
     lines.append(f"- Missing methods total: `{summary.missing_methods_total}`")
     lines.append(f"- Extra methods total: `{summary.extra_methods_total}`")
     lines.append("")
@@ -348,7 +366,9 @@ def render_jpexs_ast_diff_markdown(report: JpexsAstDiffReport) -> str:
         lines.append("")
         return "\n".join(lines).rstrip() + "\n"
 
-    lines.append("| Class | ASASM | Parsed | Missing Methods | Extra Methods | iinit | cinit |")
+    lines.append(
+        "| Class | ASASM | Parsed | Missing Methods | Extra Methods | iinit | cinit |"
+    )
     lines.append("| --- | --- | --- | --- | --- | --- | --- |")
     for diff in diff_rows:
         missing = ", ".join(diff.missing_methods) if diff.missing_methods else "-"
@@ -383,7 +403,7 @@ def _extract_opcode_names_from_source(source: str) -> set[str]:
     return set(re.findall(r"Opcode\.([A-Za-z0-9_]+)", source))
 
 
-def _extract_opcodes_from_callable(obj) -> set[Opcode]:
+def _extract_opcodes_from_callable(obj: Any) -> set[Opcode]:
     source = inspect.getsource(obj)
     names = _extract_opcode_names_from_source(source)
     result: set[Opcode] = set()
@@ -434,7 +454,9 @@ def _opcode_families_from_enums_source() -> dict[str, list[Opcode]]:
             current_family = family_match.group(1)
             continue
 
-        opcode_match = re.match(r"^\s*([A-Za-z][A-Za-z0-9_]*)\s*=\s*0x[0-9a-fA-F]+\s*$", line)
+        opcode_match = re.match(
+            r"^\s*([A-Za-z][A-Za-z0-9_]*)\s*=\s*0x[0-9a-fA-F]+\s*$", line
+        )
         if not opcode_match:
             continue
         opcode_name = opcode_match.group(1)
@@ -505,11 +527,23 @@ def build_opcode_family_coverage_report() -> OpcodeFamilyCoverageReport:
             OpcodeFamilyCoverageRow(
                 family=family,
                 opcodes=opcode_tuple,
-                parse_supported=tuple(sorted((set(opcode_tuple) & parse_supported), key=lambda op: op.value)),
-                stack_effect_supported=tuple(
-                    sorted((set(opcode_tuple) & stack_effect_supported), key=lambda op: op.value)
+                parse_supported=tuple(
+                    sorted(
+                        (set(opcode_tuple) & parse_supported), key=lambda op: op.value
+                    )
                 ),
-                type_merge_supported=tuple(sorted((set(opcode_tuple) & type_merge_supported), key=lambda op: op.value)),
+                stack_effect_supported=tuple(
+                    sorted(
+                        (set(opcode_tuple) & stack_effect_supported),
+                        key=lambda op: op.value,
+                    )
+                ),
+                type_merge_supported=tuple(
+                    sorted(
+                        (set(opcode_tuple) & type_merge_supported),
+                        key=lambda op: op.value,
+                    )
+                ),
             )
         )
 
@@ -571,7 +605,9 @@ def render_opcode_family_coverage_markdown(report: OpcodeFamilyCoverageReport) -
     for row in report.rows:
         opcode_set = set(row.opcodes)
         parse_gap = sorted(op.name for op in opcode_set - set(row.parse_supported))
-        stack_gap = sorted(op.name for op in opcode_set - set(row.stack_effect_supported))
+        stack_gap = sorted(
+            op.name for op in opcode_set - set(row.stack_effect_supported)
+        )
         type_gap = sorted(op.name for op in opcode_set - set(row.type_merge_supported))
         if parse_gap or stack_gap or type_gap:
             gap_rows.append((row.family, parse_gap, stack_gap, type_gap))
@@ -591,7 +627,11 @@ def render_opcode_family_coverage_markdown(report: OpcodeFamilyCoverageReport) -
 
     lines.append("## Global Consistency")
     lines.append("")
-    lines.append(f"- Duplicate family assignments: `{_format_csv_or_dash(report.duplicate_opcodes)}`")
-    lines.append(f"- Uncovered opcodes in family extraction: `{_format_csv_or_dash(report.uncovered_families)}`")
+    lines.append(
+        f"- Duplicate family assignments: `{_format_csv_or_dash(report.duplicate_opcodes)}`"
+    )
+    lines.append(
+        f"- Uncovered opcodes in family extraction: `{_format_csv_or_dash(report.uncovered_families)}`"
+    )
     lines.append("")
     return "\n".join(lines).rstrip() + "\n"

@@ -1,16 +1,30 @@
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, TypeAlias
 
 from .enums import (
-    Index, NamespaceKind, MultinameKind, NamespaceDict,
-    MultinameDict, ConstantPoolDict, MultinameQNameDict, MultinameRTQNameDict, MultinameMultinameDict,
-    MultinameMultinameLDict, MultinameTypeNameDict, MultinameRTQNameLDict
+    Index,
+    NamespaceKind,
+    MultinameKind,
+    NamespaceDict,
+    MultinameDict,
+    ConstantPoolDict,
+    MultinameQNameDict,
+    MultinameRTQNameDict,
+    MultinameMultinameDict,
+    MultinameMultinameLDict,
+    MultinameTypeNameDict,
+    MultinameRTQNameLDict,
+)
+
+ResolvedValue: TypeAlias = (
+    "str | int | float | NamespaceInfo | NamespaceSet | Multiname | MultinameRef"
 )
 
 
 class NamespaceInfo:
     """Immutable namespace entry."""
-    __slots__ = ('kind', 'name')
+
+    __slots__ = ("kind", "name")
 
     def __init__(self, kind: NamespaceKind, name: int):
         self.kind = kind
@@ -20,11 +34,8 @@ class NamespaceInfo:
         """Return a serializable dictionary."""
         name_res = self.name
         if pool:
-            name_res = pool.resolve_index(self.name, 'string')
-        return {
-            "kind": self.kind.name,
-            "name": name_res
-        }
+            name_res = pool.resolve_index(self.name, "string")
+        return {"kind": self.kind.name, "name": name_res}
 
     def __repr__(self) -> str:
         return f"NamespaceInfo({self.kind.name}, name_idx={self.name})"
@@ -32,7 +43,8 @@ class NamespaceInfo:
 
 class NamespaceSet:
     """Immutable namespace-set entry."""
-    __slots__ = ('namespaces',)
+
+    __slots__ = ("namespaces",)
 
     def __init__(self, namespaces: List[NamespaceInfo]):
         self.namespaces = tuple(namespaces)  # Store as immutable tuple.
@@ -46,7 +58,8 @@ class NamespaceSet:
 
 class Multiname:
     """Immutable multiname entry."""
-    __slots__ = ('kind', 'data')
+
+    __slots__ = ("kind", "data")
 
     def __init__(self, kind: MultinameKind, data: Dict[str, Any]):
         self.kind = kind
@@ -58,16 +71,16 @@ class Multiname:
             ns = self.data.get("namespace")
             name = self.data.get("name")
             return MultinameQNameDict(
-                kind='QNAME' if self.kind == MultinameKind.QNAME else 'QNAMEA',
-                namespace=ns.value if ns and hasattr(ns, 'value') else 0,
-                name=name.value if name and hasattr(name, 'value') else 0
+                kind="QNAME" if self.kind == MultinameKind.QNAME else "QNAMEA",
+                namespace=ns.value if ns and hasattr(ns, "value") else 0,
+                name=name.value if name and hasattr(name, "value") else 0,
             )
 
         elif self.kind in (MultinameKind.RTQNAME, MultinameKind.RTQNAMEA):
             name = self.data.get("name")
             return MultinameRTQNameDict(
-                kind='RTQNAME' if self.kind == MultinameKind.RTQNAME else 'RTQNAMEA',
-                name=name.value if name and hasattr(name, 'value') else 0
+                kind="RTQNAME" if self.kind == MultinameKind.RTQNAME else "RTQNAMEA",
+                name=name.value if name and hasattr(name, "value") else 0,
             )
 
         elif self.kind in (MultinameKind.MULTINAME, MultinameKind.MULTINAMEA):
@@ -75,36 +88,47 @@ class Multiname:
             ns_set = self.data.get("namespace_set")
             ns_set_idx = self._get_ns_set_index(ns_set, pool)
             return MultinameMultinameDict(
-                kind='MULTINAME' if self.kind == MultinameKind.MULTINAME else 'MULTINAMEA',
-                name=name.value if name and hasattr(name, 'value') else 0,
-                namespace_set=ns_set_idx
+                kind="MULTINAME"
+                if self.kind == MultinameKind.MULTINAME
+                else "MULTINAMEA",
+                name=name.value if name and hasattr(name, "value") else 0,
+                namespace_set=ns_set_idx,
             )
 
         elif self.kind in (MultinameKind.MULTINAMEL, MultinameKind.MULTINAMELA):
             ns_set = self.data.get("namespace_set")
             ns_set_idx = self._get_ns_set_index(ns_set, pool)
             return MultinameMultinameLDict(
-                kind='MULTINAMEL' if self.kind == MultinameKind.MULTINAMEL else 'MULTINAMELA',
-                namespace_set=ns_set_idx
+                kind="MULTINAMEL"
+                if self.kind == MultinameKind.MULTINAMEL
+                else "MULTINAMELA",
+                namespace_set=ns_set_idx,
             )
 
         elif self.kind in (MultinameKind.RTQNAMEL, MultinameKind.RTQNAMELA):
             return MultinameRTQNameLDict(
-                kind='RTQNameL' if self.kind == MultinameKind.RTQNAMEL else 'RTQNameLA'
+                kind="RTQNameL" if self.kind == MultinameKind.RTQNAMEL else "RTQNameLA"
             )
 
         elif self.kind == MultinameKind.TYPENAME:
             base_type = self.data.get("base_type")
             parameters = self.data.get("parameters", [])
             return MultinameTypeNameDict(
-                kind='TYPENAME',
-                base_type=base_type.value if base_type and hasattr(base_type, 'value') else 0,
-                parameters=[param.value if hasattr(param, 'value') else param for param in parameters]
+                kind="TYPENAME",
+                base_type=base_type.value
+                if base_type and hasattr(base_type, "value")
+                else 0,
+                parameters=[
+                    param.value if hasattr(param, "value") else param
+                    for param in parameters
+                ],
             )
 
         raise ValueError(f"Unknown multiname kind: {self.kind}")
 
-    def _get_ns_set_index(self, ns_set: Optional[NamespaceSet], pool: Optional["ConstantPool"]) -> int:
+    def _get_ns_set_index(
+        self, ns_set: Optional[NamespaceSet], pool: Optional["ConstantPool"]
+    ) -> int:
         """Resolve namespace-set index from constant pool (1-based)."""
         if not ns_set or not pool:
             return 0
@@ -122,12 +146,17 @@ class MultinameRef(str):
     enough information for strict stack-effect decisions in higher layers.
     """
 
-    __slots__ = ("kind", "index")
+    __slots__ = ("kind", "ref_index")
 
-    def __new__(cls, text: str, kind: Optional[MultinameKind], index: int):
+    kind: MultinameKind | None
+    ref_index: int
+
+    def __new__(
+        cls, text: str, kind: Optional[MultinameKind], ref_index: int
+    ) -> "MultinameRef":
         obj = super().__new__(cls, text)
-        obj.kind = kind
-        obj.index = index
+        object.__setattr__(obj, "kind", kind)
+        object.__setattr__(obj, "ref_index", ref_index)
         return obj
 
     @property
@@ -144,6 +173,7 @@ class MultinameRef(str):
 @dataclass
 class ConstantPool:
     """Constant-pool model and index resolver."""
+
     ints: List[int]
     uints: List[int]
     doubles: List[float]
@@ -151,13 +181,27 @@ class ConstantPool:
     namespaces: List[NamespaceInfo]
     namespace_sets: List[NamespaceSet]
     multinames: List[Multiname]
-    _preloaded_ints_1based: Optional[List[int]] = field(default=None, init=False, repr=False, compare=False)
-    _preloaded_uints_1based: Optional[List[int]] = field(default=None, init=False, repr=False, compare=False)
-    _preloaded_doubles_1based: Optional[List[float]] = field(default=None, init=False, repr=False, compare=False)
-    _preloaded_strings_1based: Optional[List[str]] = field(default=None, init=False, repr=False, compare=False)
-    _preloaded_namespaces_1based: Optional[List[str]] = field(default=None, init=False, repr=False, compare=False)
-    _preloaded_ns_sets_1based: Optional[List[str]] = field(default=None, init=False, repr=False, compare=False)
-    _preloaded_multinames_1based: Optional[List[Any]] = field(default=None, init=False, repr=False, compare=False)
+    _preloaded_ints_1based: Optional[List[int]] = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _preloaded_uints_1based: Optional[List[int]] = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _preloaded_doubles_1based: Optional[List[float]] = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _preloaded_strings_1based: Optional[List[str]] = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _preloaded_namespaces_1based: Optional[List[str]] = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _preloaded_ns_sets_1based: Optional[List[str]] = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _preloaded_multinames_1based: Optional[List[Any]] = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     def _namespace_index_lookup(self) -> Dict[NamespaceInfo, int]:
         cached = getattr(self, "_namespace_index_lookup_cache", None)
@@ -175,7 +219,9 @@ class ConstantPool:
         setattr(self, "_namespace_set_index_lookup_cache", lookup)
         return lookup
 
-    def _resolve_cached(self, cache_name: str, idx: int, resolver: Callable[[int], Any]) -> Any:
+    def _resolve_cached(
+        self, cache_name: str, idx: int, resolver: Callable[[int], Any]
+    ) -> Any:
         cache = getattr(self, cache_name, None)
         if not isinstance(cache, dict):
             cache = {}
@@ -235,8 +281,12 @@ class ConstantPool:
         ns_sets_1based: List[str] = ["*"]
         namespace_lookup = self._namespace_index_lookup()
         for ns_set in self.namespace_sets:
-            ns_indices = [namespace_lookup.get(ns_info, 0) for ns_info in ns_set.namespaces]
-            ns_sets_1based.append("(" + ", ".join(str(index) for index in ns_indices) + ")")
+            ns_indices = [
+                namespace_lookup.get(ns_info, 0) for ns_info in ns_set.namespaces
+            ]
+            ns_sets_1based.append(
+                "(" + ", ".join(str(index) for index in ns_indices) + ")"
+            )
 
         multinames_cache: List[Any] = [None] * (len(self.multinames) + 1)
         multinames_cache[0] = "*"
@@ -257,7 +307,9 @@ class ConstantPool:
         self._preloaded_strings_1based = strings_1based
         self._preloaded_namespaces_1based = namespaces_1based
         self._preloaded_ns_sets_1based = ns_sets_1based
-        self._preloaded_multinames_1based = [entry if entry is not None else "*" for entry in multinames_cache]
+        self._preloaded_multinames_1based = [
+            entry if entry is not None else "*" for entry in multinames_cache
+        ]
 
     def _resolve_multiname_preloaded_index(
         self,
@@ -268,7 +320,11 @@ class ConstantPool:
         multinames_cache: List[Any],
         visiting: Set[int],
     ) -> Any:
-        cached = multinames_cache[index_val] if 0 <= index_val < len(multinames_cache) else None
+        cached = (
+            multinames_cache[index_val]
+            if 0 <= index_val < len(multinames_cache)
+            else None
+        )
         if cached is not None:
             return cached
 
@@ -306,10 +362,14 @@ class ConstantPool:
                                 visiting=visiting,
                             )
                         )
-                    resolved = MultinameRef(f"{base}.<{', '.join(params)}>", mn.kind, index_val)
+                    resolved = MultinameRef(
+                        f"{base}.<{', '.join(params)}>", mn.kind, index_val
+                    )
                 else:
                     resolved = MultinameRef(
-                        self._format_multiname_preloaded(mn, strings_1based, namespaces_1based),
+                        self._format_multiname_preloaded(
+                            mn, strings_1based, namespaces_1based
+                        ),
                         mn.kind,
                         index_val,
                     )
@@ -392,7 +452,7 @@ class ConstantPool:
             return self._preloaded_multinames_1based or ["*"]
         return ["*"]
 
-    def resolve_index(self, index_val: int, kind_hint: str = None) -> Any:
+    def resolve_index(self, index_val: int, kind_hint: str | None = None) -> Any:
         """Resolve a 1-based constant-pool index with an optional kind hint."""
         if index_val == 0:
             return "*"  # AVM2 zero index means any/null/undefined.
@@ -402,7 +462,9 @@ class ConstantPool:
                 return self._preloaded_strings_1based[index_val]
             return f"#string_{index_val}"
 
-        if kind_hint == "namespace" and isinstance(self._preloaded_namespaces_1based, list):
+        if kind_hint == "namespace" and isinstance(
+            self._preloaded_namespaces_1based, list
+        ):
             if 0 < index_val < len(self._preloaded_namespaces_1based):
                 return self._preloaded_namespaces_1based[index_val]
             return f"#namespace_{index_val}"
@@ -412,7 +474,9 @@ class ConstantPool:
                 return self._preloaded_ns_sets_1based[index_val]
             return f"#ns_set_{index_val}"
 
-        if kind_hint == "multiname" and isinstance(self._preloaded_multinames_1based, list):
+        if kind_hint == "multiname" and isinstance(
+            self._preloaded_multinames_1based, list
+        ):
             if 0 < index_val < len(self._preloaded_multinames_1based):
                 return self._preloaded_multinames_1based[index_val]
             return MultinameRef(f"#multiname_{index_val}", None, index_val)
@@ -437,11 +501,17 @@ class ConstantPool:
         if kind_hint == "string":
             return self._resolve_string(idx)
         elif kind_hint == "namespace":
-            return self._resolve_cached("_namespace_resolve_cache", idx, self._resolve_namespace)
+            return self._resolve_cached(
+                "_namespace_resolve_cache", idx, self._resolve_namespace
+            )
         elif kind_hint == "ns_set":
-            return self._resolve_cached("_ns_set_resolve_cache", idx, self._resolve_ns_set)
+            return self._resolve_cached(
+                "_ns_set_resolve_cache", idx, self._resolve_ns_set
+            )
         elif kind_hint == "multiname":
-            return self._resolve_cached("_multiname_resolve_cache", idx, self._resolve_multiname)
+            return self._resolve_cached(
+                "_multiname_resolve_cache", idx, self._resolve_multiname
+            )
         elif kind_hint == "int":
             return self._resolve_int(idx)
         elif kind_hint == "uint":
@@ -459,7 +529,7 @@ class ConstantPool:
     def _resolve_namespace(self, idx: int) -> str:
         if 0 <= idx < len(self.namespaces):
             ns = self.namespaces[idx]
-            name_val = self.resolve_index(ns.name, 'string') if ns.name != 0 else "*"
+            name_val = self.resolve_index(ns.name, "string") if ns.name != 0 else "*"
             return f"{ns.kind.name}::{name_val}"
         return f"#namespace_{idx + 1}"
 
@@ -480,7 +550,10 @@ class ConstantPool:
                 return MultinameRef(str(mn), None, idx + 1)
             if mn.kind == MultinameKind.TYPENAME:
                 base = self.resolve_index(mn.data["base_type"].value, "multiname")
-                params = [self.resolve_index(p.value, "multiname") for p in mn.data["parameters"]]
+                params = [
+                    self.resolve_index(p.value, "multiname")
+                    for p in mn.data["parameters"]
+                ]
                 return MultinameRef(f"{base}.<{', '.join(params)}>", mn.kind, idx + 1)
             return MultinameRef(self._format_multiname(mn), mn.kind, idx + 1)
         return MultinameRef(f"#multiname_{idx + 1}", None, idx + 1)
@@ -508,12 +581,12 @@ class ConstantPool:
 
         # Resolve short name.
         if "name" in data and isinstance(data["name"], Index):
-            name_val = self.resolve_index(data["name"].value, 'string')
+            name_val = self.resolve_index(data["name"].value, "string")
             name = name_val if data["name"].value != 0 else "*"
 
         # Resolve namespace prefix.
         if "namespace" in data and isinstance(data["namespace"], Index):
-            ns_str = self.resolve_index(data["namespace"].value, 'namespace') + "::"
+            ns_str = self.resolve_index(data["namespace"].value, "namespace") + "::"
         elif "namespace_set" in data:
             ns_str = f"[NsSet]::"
 
@@ -540,14 +613,16 @@ class ConstantPool:
             "strings": self.strings,
             "namespaces": [ns.to_dict(pool) for ns in self.namespaces],
             "namespace_sets": serialized_ns_sets,
-            "multinames": multinames
+            "multinames": multinames,
         }
 
     def __repr__(self) -> str:
-        return (f"ConstantPool(ints={len(self.ints)}, uints={len(self.uints)}, "
-                f"doubles={len(self.doubles)}, strings={len(self.strings)}, "
-                f"namespaces={len(self.namespaces)}, namespace_sets={len(self.namespace_sets)}, "
-                f"multinames={len(self.multinames)})")
+        return (
+            f"ConstantPool(ints={len(self.ints)}, uints={len(self.uints)}, "
+            f"doubles={len(self.doubles)}, strings={len(self.strings)}, "
+            f"namespaces={len(self.namespaces)}, namespace_sets={len(self.namespace_sets)}, "
+            f"multinames={len(self.multinames)})"
+        )
 
     def __str__(self) -> str:
         """Return full constant-pool details without truncation."""
@@ -563,20 +638,20 @@ class ConstantPool:
         # Unsigned integer constant pool.
         lines.append(f"  Unsigned Integers: {len(self.uints)} entries")
         if self.uints:
-            for i, val in enumerate(self.uints):
-                lines.append(f"    [{i}] {val}")
+            for i, uint_val in enumerate(self.uints):
+                lines.append(f"    [{i}] {uint_val}")
 
         # Double constant pool.
         lines.append(f"  Doubles: {len(self.doubles)} entries")
         if self.doubles:
-            for i, val in enumerate(self.doubles):
-                lines.append(f"    [{i}] {val}")
+            for i, double_val in enumerate(self.doubles):
+                lines.append(f"    [{i}] {double_val}")
 
         # String constant pool.
         lines.append(f"  Strings: {len(self.strings)} entries")
         if self.strings:
-            for i, val in enumerate(self.strings):
-                lines.append(f'    [{i}] "{val}"')
+            for i, string_val in enumerate(self.strings):
+                lines.append(f'    [{i}] "{string_val}"')
 
         # Namespace constant pool.
         lines.append(f"  Namespaces: {len(self.namespaces)} entries")

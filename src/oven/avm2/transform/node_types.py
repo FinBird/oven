@@ -25,6 +25,10 @@ class AS3NodeTypes:
     CATCH_SCOPE_OBJECT: Final[str] = "catch_scope_object"
     COERCE: Final[str] = "coerce"
     COERCE_B: Final[str] = "coerce_b"
+    COERCE_I: Final[str] = "coerce_i"
+    COERCE_U: Final[str] = "coerce_u"
+    COERCE_D: Final[str] = "coerce_d"
+    COERCE_S: Final[str] = "coerce_s"
     CONSTRUCT: Final[str] = "construct"
     CONSTRUCT_PROPERTY: Final[str] = "construct_property"
     CONSTRUCT_SUPER: Final[str] = "construct_super"
@@ -40,6 +44,7 @@ class AS3NodeTypes:
     DECREMENT: Final[str] = "decrement"
     DECREMENT_I: Final[str] = "decrement_i"
     DEFAULT: Final[str] = "default"
+    DELETE: Final[str] = "delete"
     DIVIDE: Final[str] = "divide"
     DOUBLE: Final[str] = "double"
     EQ: Final[str] = "=="
@@ -84,6 +89,7 @@ class AS3NodeTypes:
     MODULO: Final[str] = "modulo"
     MULTIPLY: Final[str] = "multiply"
     NAN: Final[str] = "nan"
+    NEGATE: Final[str] = "negate"
     NE: Final[str] = "!="
     NEW_ACTIVATION: Final[str] = "new_activation"
     NEW_ARRAY: Final[str] = "new_array"
@@ -99,9 +105,13 @@ class AS3NodeTypes:
     POP: Final[str] = "pop"
     POP_SCOPE: Final[str] = "pop_scope"
     POST_DECREMENT_LOCAL: Final[str] = "post_decrement_local"
+    POST_DECREMENT_PROPERTY: Final[str] = "post_decrement_property"
     POST_INCREMENT_LOCAL: Final[str] = "post_increment_local"
+    POST_INCREMENT_PROPERTY: Final[str] = "post_increment_property"
     PRE_DECREMENT_LOCAL: Final[str] = "pre_decrement_local"
+    PRE_DECREMENT_PROPERTY: Final[str] = "pre_decrement_property"
     PRE_INCREMENT_LOCAL: Final[str] = "pre_increment_local"
+    PRE_INCREMENT_PROPERTY: Final[str] = "pre_increment_property"
     PUSH_SCOPE: Final[str] = "push_scope"
     PUSH_WITH: Final[str] = "push_with"
     REMOVE: Final[str] = "remove"
@@ -161,6 +171,10 @@ AS3NodeType: TypeAlias = Literal[
     "catch_scope_object",
     "coerce",
     "coerce_b",
+    "coerce_i",
+    "coerce_u",
+    "coerce_d",
+    "coerce_s",
     "construct",
     "construct_property",
     "construct_super",
@@ -176,6 +190,7 @@ AS3NodeType: TypeAlias = Literal[
     "decrement",
     "decrement_i",
     "default",
+    "delete",
     "divide",
     "double",
     "expand",
@@ -215,6 +230,7 @@ AS3NodeType: TypeAlias = Literal[
     "modulo",
     "multiply",
     "nan",
+    "negate",
     "new_activation",
     "new_array",
     "new_class",
@@ -228,9 +244,13 @@ AS3NodeType: TypeAlias = Literal[
     "pop",
     "pop_scope",
     "post_decrement_local",
+    "post_decrement_property",
     "post_increment_local",
+    "post_increment_property",
     "pre_decrement_local",
+    "pre_decrement_property",
     "pre_increment_local",
+    "pre_increment_property",
     "push_scope",
     "push_with",
     "remove",
