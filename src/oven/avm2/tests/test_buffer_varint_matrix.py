@@ -3,7 +3,9 @@ from __future__ import annotations
 from oven.avm2.buffer import Buffer
 
 
-def _add_when_between(values: list[int], number: int, minimum: int, maximum: int) -> None:
+def _add_when_between(
+    values: list[int], number: int, minimum: int, maximum: int
+) -> None:
     if minimum <= number <= maximum:
         values.append(number)
 

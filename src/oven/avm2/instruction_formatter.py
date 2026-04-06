@@ -10,7 +10,16 @@ class InstructionFormatter:
     """Instruction text rendering extracted from ABCReader."""
 
     _STRING_OPCODES = frozenset(("pushstring", "debugfile", "dxns"))
-    _MULTINAME_MARKERS = ("property", "super", "descendants", "find", "lex", "coerce", "astype", "istype")
+    _MULTINAME_MARKERS = (
+        "property",
+        "super",
+        "descendants",
+        "find",
+        "lex",
+        "coerce",
+        "astype",
+        "istype",
+    )
 
     def __init__(self) -> None:
         # Cache operand-resolution kind by opcode to keep hot formatting loops cheap.
@@ -39,7 +48,9 @@ class InstructionFormatter:
                 operand_strs: list[str] = []
                 for i, operand in enumerate(inst.operands):
                     # Resolve constant references when possible.
-                    resolved_operand = self._resolve_operand_for_display(inst.opcode, i, operand, pool)
+                    resolved_operand = self._resolve_operand_for_display(
+                        inst.opcode, i, operand, pool
+                    )
                     operand_strs.append(resolved_operand)
 
                 line_parts.append(" ".join(operand_strs))
@@ -63,7 +74,9 @@ class InstructionFormatter:
             if inst.operands:
                 operand_strs: list[str] = []
                 for operand in inst.operands:
-                    resolved_operand = self._resolve_operand_for_function_call(inst.opcode, operand, pool)
+                    resolved_operand = self._resolve_operand_for_function_call(
+                        inst.opcode, operand, pool
+                    )
                     operand_strs.append(resolved_operand)
 
                 line = f"{func_name}({', '.join(operand_strs)})"

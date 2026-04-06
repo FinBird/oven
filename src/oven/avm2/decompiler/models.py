@@ -135,9 +135,9 @@ class DecompilationResult:
                 "package",
                 [self.class_ast],
                 {
-                    "package": ".".join(self.package_parts)
-                    if self.package_parts
-                    else "",
+                    "package": (
+                        ".".join(self.package_parts) if self.package_parts else ""
+                    ),
                     "imports": list(self.imports),
                 },
             )

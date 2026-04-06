@@ -29,9 +29,7 @@ def test_debug_comments_enabled_include_offset_opcode_and_operands(
     source = _export_first_file(tmp_path, fixture_dir, debug=True)
     assert "// method " in source
     debug_lines = [
-        line.strip()
-        for line in source.splitlines()
-        if line.strip().startswith("// 0x")
+        line.strip() for line in source.splitlines() if line.strip().startswith("// 0x")
     ]
     assert debug_lines
     for line in debug_lines[:20]:

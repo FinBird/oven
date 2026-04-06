@@ -48,6 +48,12 @@ After activation, every `git commit` will:
 - run `mypy` with the committed strict configuration from `pyproject.toml`
 - block the commit if formatting, type checking, or hook prerequisites fail
 
+### 3. Rely on CI for authoritative verification
+
+Git hooks run on the contributor's machine. GitHub Actions runs the same
+repository in a fresh remote environment on every push and pull request, which
+makes it the shared source of truth for merge safety.
+
 ## Common Usage
 
 ### CLI usage
@@ -124,6 +130,9 @@ oven/
 |-- pyproject.toml
 |-- pytest.ini
 |-- profile_decompile.py
+|-- .github/
+|   `-- workflows/
+|       `-- ci.yml
 |-- .githooks/
 |-- examples/
 |   `-- export_angel_libs.py
@@ -166,6 +175,7 @@ oven/
 Structure notes:
 
 - `pyproject.toml`: packaging metadata, editable install settings, development extras, and shared mypy configuration
+- `.github/workflows/ci.yml`: GitHub Actions workflow that runs formatter checks, strict mypy, and pytest on pushes and pull requests
 - `.githooks/`: tracked Git hook entrypoints, including the blocking pre-commit gate and preserved Git LFS hooks
 - `src/oven/api/`: stable public orchestration layer for decompilation and export
 - `src/oven/avm2/`: parser, verifier, ABC model, decompiler internals, and AVM2-specific tests
@@ -240,10 +250,24 @@ Behavior:
 - runs `python -m mypy` using the strict repository configuration
 - exits non-zero on any failure so `git commit` is rejected
 
+Git hooks can also run tests, but full test suites are usually a better fit for
+`pre-push` or CI than `pre-commit` because they make every local commit slower.
+
+## CI
+
+GitHub Actions is enabled in `.github/workflows/ci.yml`.
+
+Behavior:
+
+- runs on every push, pull request, and manual `workflow_dispatch`
+- checks formatting with `black --check`
+- runs strict `mypy` from the committed repository configuration
+- runs the pytest suite on Python `3.10` and `3.13`
+- checks out Git LFS fixtures so fixture-backed tests work in CI
+
 ## TODO
 
 - Split fixture-heavy regression tests from the default fast path more clearly
-- Add CI commands that run pytest plus mypy in a consistent environment
 - Expand root-level documentation as the public API surface stabilizes
 
 ## Additional Notes

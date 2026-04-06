@@ -88,9 +88,11 @@ class Multiname:
             ns_set = self.data.get("namespace_set")
             ns_set_idx = self._get_ns_set_index(ns_set, pool)
             return MultinameMultinameDict(
-                kind="MULTINAME"
-                if self.kind == MultinameKind.MULTINAME
-                else "MULTINAMEA",
+                kind=(
+                    "MULTINAME"
+                    if self.kind == MultinameKind.MULTINAME
+                    else "MULTINAMEA"
+                ),
                 name=name.value if name and hasattr(name, "value") else 0,
                 namespace_set=ns_set_idx,
             )
@@ -99,9 +101,11 @@ class Multiname:
             ns_set = self.data.get("namespace_set")
             ns_set_idx = self._get_ns_set_index(ns_set, pool)
             return MultinameMultinameLDict(
-                kind="MULTINAMEL"
-                if self.kind == MultinameKind.MULTINAMEL
-                else "MULTINAMELA",
+                kind=(
+                    "MULTINAMEL"
+                    if self.kind == MultinameKind.MULTINAMEL
+                    else "MULTINAMELA"
+                ),
                 namespace_set=ns_set_idx,
             )
 
@@ -115,9 +119,9 @@ class Multiname:
             parameters = self.data.get("parameters", [])
             return MultinameTypeNameDict(
                 kind="TYPENAME",
-                base_type=base_type.value
-                if base_type and hasattr(base_type, "value")
-                else 0,
+                base_type=(
+                    base_type.value if base_type and hasattr(base_type, "value") else 0
+                ),
                 parameters=[
                     param.value if hasattr(param, "value") else param
                     for param in parameters

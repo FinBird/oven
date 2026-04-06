@@ -1023,7 +1023,9 @@ class AstSemanticNormalizePass(Transform[Any, Any], NodeVisitor):
             getter_checker = lambda getter: self._is_get_property_of(
                 getter, subject, name
             )
-            increment_type = NT.PRE_INCREMENT_PROPERTY  # set_property(subject, name, increment(get_property(subject, name))) is pre-increment
+            increment_type = (
+                NT.PRE_INCREMENT_PROPERTY
+            )  # set_property(subject, name, increment(get_property(subject, name))) is pre-increment
             decrement_type = NT.PRE_DECREMENT_PROPERTY
             target_args = [subject, name]
         else:
@@ -1098,7 +1100,9 @@ class AstSemanticNormalizePass(Transform[Any, Any], NodeVisitor):
             getter_checker = lambda getter: self._is_get_property_of(
                 getter, subject, name
             )
-            increment_type = NT.PRE_INCREMENT_PROPERTY  # set_property(subject, name, increment(get_property(subject, name))) is pre-increment
+            increment_type = (
+                NT.PRE_INCREMENT_PROPERTY
+            )  # set_property(subject, name, increment(get_property(subject, name))) is pre-increment
             decrement_type = NT.PRE_DECREMENT_PROPERTY
         else:
             return None

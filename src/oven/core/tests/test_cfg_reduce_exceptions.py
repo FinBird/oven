@@ -489,9 +489,9 @@ class TestCFGReduceTryCatchFinally:
         finally_nodes = [
             c for c in try_node.children if isinstance(c, Node) and c.type == "finally"
         ]
-        assert len(finally_nodes) == 1, (
-            f"Expected 1 finally node, got {len(finally_nodes)}"
-        )
+        assert (
+            len(finally_nodes) == 1
+        ), f"Expected 1 finally node, got {len(finally_nodes)}"
 
         # Check that finally body contains the finally instructions
         finally_body = finally_nodes[0].children[0]
@@ -707,30 +707,30 @@ class TestCFGReduceRobustness:
         """
         Scenario: Irreducible Control Flow (Loop with multiple entries).
         Topology: Entry -> A, Entry -> B, A -> B, B -> A.
-        In irreducible flow, natural headers don't exist. 
+        In irreducible flow, natural headers don't exist.
         The reducer must not hang and should eventually fall back to raw jumps/nops.
         """
         cfg = CFG()
         dialect = reducer.dialect
-        
+
         entry = cfg.add_node("entry")
         a = cfg.add_node("A", insns=[Node("nop")])
         b = cfg.add_node("B", insns=[Node("nop")])
-        
+
         cfg.entry = entry
         entry.add_target(a)
         entry.add_target(b)
-        
+
         # Cross jumps creating irreducible loop
         a.add_target(b)
         b.add_target(a)
-        
+
         # Ensure we don't hit max_iterations or infinite loop
         ast = reducer.transform(cfg)
-        
+
         assert ast.type == dialect.ast_begin
         # We expect it to at least finish. It will likely emit low-level jump/if
-        # instead of a structured 'while' loop because identify_loops() 
+        # instead of a structured 'while' loop because identify_loops()
         # won't find a natural header.
         assert isinstance(ast.children, list)
 
@@ -742,16 +742,16 @@ class TestCFGReduceRobustness:
         """
         cfg = CFG()
         dialect = reducer.dialect
-        
+
         entry = cfg.add_node("entry")
         h = cfg.add_node("header", insns=[Node("nop")])
         b = cfg.add_node("body", insns=[Node("nop")])
-        
+
         cfg.entry = entry
         entry.add_target(h)
         h.add_target(b)
         b.add_target(h)
-        
+
         # The reduce_from logic should stop when all reachable nodes are visited
         # or when it detects a cycle it cannot structure as a 'while'.
         ast = reducer.transform(cfg)
@@ -767,19 +767,21 @@ class TestCFGReduceRobustness:
         N = 100
         cfg = CFG()
         dialect = reducer.dialect
-        
+
         # Create a switch node. In AVM2 this is usually a lookup_switch
         switch_op = next(iter(dialect.switches))
-        dispatcher = cfg.add_node("dispatcher", insns=[Node(switch_op, [Node("integer", [0])])])
+        dispatcher = cfg.add_node(
+            "dispatcher", insns=[Node(switch_op, [Node("integer", [0])])]
+        )
         cfg.entry = dispatcher
-        
+
         for i in range(N):
             blk = cfg.add_node(f"case_{i}", insns=[Node("nop")])
             dispatcher.add_target(blk)
-            blk.add_target(dispatcher) # Loop back to flattening dispatcher
-            
+            blk.add_target(dispatcher)  # Loop back to flattening dispatcher
+
         ast = reducer.transform(cfg)
-        
+
         # It should identify a switch structure
         # (Though with back-edges, it might struggle to structure as a simple switch)
         assert ast.type == dialect.ast_begin
@@ -795,74 +797,88 @@ class TestCFGReduceRobustness:
         """
         cfg = CFG()
         dialect = reducer.dialect
-        DEPTH = 400 # High enough to be risky, low enough to run quickly
-        
+        DEPTH = 400  # High enough to be risky, low enough to run quickly
+
         prev_node = cfg.add_node("entry")
         cfg.entry = prev_node
-        
+
         exit_node = cfg.add_node("exit")
         cfg.exit = exit_node
-        
+
         for i in range(DEPTH):
             # Create a one-way 'if' diamond
             # curr -> {then, merge}
             then_node = cfg.add_node(f"then_{i}", insns=[Node("nop")])
             merge_node = cfg.add_node(f"merge_{i}", insns=[Node("nop")])
-            
+
             # JumpIf(cond)
             jump_op = next(iter(dialect.conditional_jumps))
             prev_node.cti = Node(jump_op, [True, Node("true")])
             prev_node.add_target(then_node)
             prev_node.add_target(merge_node)
-            
+
             then_node.add_target(merge_node)
-            prev_node = then_node # Nest the next 'if' inside the 'then' branch
-            
+            prev_node = then_node  # Nest the next 'if' inside the 'then' branch
+
         prev_node.add_target(exit_node)
-        
+
         # This will test if the recursion in _reduce_from is safe
         try:
             ast = reducer.transform(cfg)
             assert ast.type == dialect.ast_begin
         except RecursionError:
-            pytest.fail("CFGReduce hit Python recursion limit on deeply nested structure")
+            pytest.fail(
+                "CFGReduce hit Python recursion limit on deeply nested structure"
+            )
 
     def test_reduce_overlapping_try_catch_scopes(self, reducer: CFGReduce) -> None:
         """
         Scenario: Overlapping/Obfuscated Exception Ranges.
         Topology: Block A (Exc: 1), Block B (Exc: 2), Block C (Exc: 1).
-        Tests if _reduce_try_catch_finally correctly identifies boundaries 
+        Tests if _reduce_try_catch_finally correctly identifies boundaries
         even when exception labels change and revert.
         """
         cfg = CFG()
         dialect = reducer.dialect
-        
+
         # Dispatchers
-        d1 = cfg.add_node("dispatcher1", insns=[
-            Node(dialect.exception_dispatch, [Node(dialect.catch, ["Error", "e", "handler1"])])
-        ])
-        d2 = cfg.add_node("dispatcher2", insns=[
-            Node(dialect.exception_dispatch, [Node(dialect.catch, ["Error", "e", "handler2"])])
-        ])
+        d1 = cfg.add_node(
+            "dispatcher1",
+            insns=[
+                Node(
+                    dialect.exception_dispatch,
+                    [Node(dialect.catch, ["Error", "e", "handler1"])],
+                )
+            ],
+        )
+        d2 = cfg.add_node(
+            "dispatcher2",
+            insns=[
+                Node(
+                    dialect.exception_dispatch,
+                    [Node(dialect.catch, ["Error", "e", "handler2"])],
+                )
+            ],
+        )
         h1 = cfg.add_node("handler1", insns=[Node("nop")])
         h2 = cfg.add_node("handler2", insns=[Node("nop")])
 
         # Sequence of blocks with interleaved exception labels
         a = cfg.add_node("A", insns=[Node("nop")])
         a.exception_label = "dispatcher1"
-        
+
         b = cfg.add_node("B", insns=[Node("nop")])
-        b.exception_label = "dispatcher2" # Switched
-        
+        b.exception_label = "dispatcher2"  # Switched
+
         c = cfg.add_node("C", insns=[Node("nop")])
-        c.exception_label = "dispatcher1" # Reverted
-        
+        c.exception_label = "dispatcher1"  # Reverted
+
         cfg.entry = a
         a.add_target(b)
         b.add_target(c)
-        
+
         ast = reducer.transform(cfg)
-        
+
         # Verify that we generated nested or sequential try blocks
         tries = [n for n in ast.descendants() if n.type == dialect.ast_try]
         assert len(tries) >= 1
@@ -875,21 +891,21 @@ class TestCFGReduceRobustness:
         """
         cfg = CFG()
         dialect = reducer.dialect
-        
+
         a = cfg.add_node("A", insns=[Node("return_void")])
         a.cti = a.instructions[0]
-        
+
         b = cfg.add_node("B", insns=[Node("nop")])
-        
+
         cfg.entry = a
-        a.add_target(b) # B is technically a target but A is terminal
-        
+        a.add_target(b)  # B is technically a target but A is terminal
+
         ast = reducer.transform(cfg)
-        
+
         # AST should contain return_void but not the NOP from B
         # because the loop in _reduce_from should terminate at A's terminal CTI.
         has_return = any(n.type == "return_void" for n in ast.children)
         has_nop = any(n.type == "nop" for n in ast.children)
-        
+
         assert has_return
         assert not has_nop

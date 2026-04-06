@@ -335,9 +335,11 @@ def build_class_ast(
         [
             Node("class_name", [class_name]),
             Node("extends", [extends_clause]) if extends_clause else Node("nop"),
-            Node("implements", [implements_clause])
-            if implements_clause
-            else Node("nop"),
+            (
+                Node("implements", [implements_clause])
+                if implements_clause
+                else Node("nop")
+            ),
             Node("fields", field_nodes),
             Node("methods", method_nodes),
         ],

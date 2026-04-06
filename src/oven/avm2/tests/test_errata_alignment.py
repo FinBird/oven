@@ -45,8 +45,15 @@ def test_metadata_info_keys_values_separate_arrays() -> None:
 
 def test_exception_info_uses_multiname_indices() -> None:
     pool = ConstantPool(
-        ints=[], uints=[], doubles=[], strings=["STRING_ONE", "MULTINAME_ONE"], namespaces=[], namespace_sets=[],
-        multinames=[Multiname(MultinameKind.QNAME, {"namespace": None, "name": Index(2)})],
+        ints=[],
+        uints=[],
+        doubles=[],
+        strings=["STRING_ONE", "MULTINAME_ONE"],
+        namespaces=[],
+        namespace_sets=[],
+        multinames=[
+            Multiname(MultinameKind.QNAME, {"namespace": None, "name": Index(2)})
+        ],
     )
     data = bytes([0, 1, 1, 0, 1, 1, 71, 1, 0, 0, 0, 1, 1, 0])
     body = ABCReader(data).read_method_body(pool)

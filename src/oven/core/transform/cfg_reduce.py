@@ -290,28 +290,38 @@ class CFGReduce(Transform[CFG, Node]):
         cond = self._condition_from_jump_if(header)
 
         if kind0 in controls and kind1 == "inside":
-            return Node(
-                self.dialect.ast_if, [cond, Node(self.dialect.ast_begin, [Node(kind0)])]
-            ), t1
+            return (
+                Node(
+                    self.dialect.ast_if,
+                    [cond, Node(self.dialect.ast_begin, [Node(kind0)])],
+                ),
+                t1,
+            )
 
         if kind1 in controls and kind0 == "inside":
-            return Node(
-                self.dialect.ast_if,
-                [
-                    Node(self.dialect.ast_not, [cond]),
-                    Node(self.dialect.ast_begin, [Node(kind1)]),
-                ],
-            ), t0
+            return (
+                Node(
+                    self.dialect.ast_if,
+                    [
+                        Node(self.dialect.ast_not, [cond]),
+                        Node(self.dialect.ast_begin, [Node(kind1)]),
+                    ],
+                ),
+                t0,
+            )
 
         if kind0 in controls and kind1 in controls:
-            return Node(
-                self.dialect.ast_if,
-                [
-                    cond,
-                    Node(self.dialect.ast_begin, [Node(kind0)]),
-                    Node(self.dialect.ast_begin, [Node(kind1)]),
-                ],
-            ), None
+            return (
+                Node(
+                    self.dialect.ast_if,
+                    [
+                        cond,
+                        Node(self.dialect.ast_begin, [Node(kind0)]),
+                        Node(self.dialect.ast_begin, [Node(kind1)]),
+                    ],
+                ),
+                None,
+            )
 
         return None, None
 
@@ -600,9 +610,13 @@ class CFGReduce(Transform[CFG, Node]):
                     break_target=break_target,
                     continue_target=continue_target,
                 )
-                return Node(
-                    self.dialect.ast_if, [Node(self.dialect.ast_not, [cond]), then_ast]
-                ), merge
+                return (
+                    Node(
+                        self.dialect.ast_if,
+                        [Node(self.dialect.ast_not, [cond]), then_ast],
+                    ),
+                    merge,
+                )
 
             then_ast = self._reduce_from(
                 t_then,
@@ -624,9 +638,13 @@ class CFGReduce(Transform[CFG, Node]):
             if not else_ast.children:
                 return Node(self.dialect.ast_if, [cond, then_ast]), merge
             if not then_ast.children:
-                return Node(
-                    self.dialect.ast_if, [Node(self.dialect.ast_not, [cond]), else_ast]
-                ), merge
+                return (
+                    Node(
+                        self.dialect.ast_if,
+                        [Node(self.dialect.ast_not, [cond]), else_ast],
+                    ),
+                    merge,
+                )
             return Node(self.dialect.ast_if, [cond, then_ast, else_ast]), merge
 
         return None, None
@@ -814,11 +832,14 @@ class CFGReduce(Transform[CFG, Node]):
             "switch_source": self.dialect.switch_source,
             "switch_target_count": len(block.targets),
         }
-        return Node(
-            self.dialect.ast_switch,
-            [expr, Node(self.dialect.ast_begin, body_children)],
-            metadata=switch_metadata,
-        ), merge
+        return (
+            Node(
+                self.dialect.ast_switch,
+                [expr, Node(self.dialect.ast_begin, body_children)],
+                metadata=switch_metadata,
+            ),
+            merge,
+        )
 
     def _reduce_try_catch_finally(
         self,
@@ -1007,5 +1028,3 @@ class CFGReduce(Transform[CFG, Node]):
                 continue
             return tgt
         return None
-
-

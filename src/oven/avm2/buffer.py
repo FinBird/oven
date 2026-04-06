@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 class BufferError(Exception):
     """Binary buffer read error."""
 

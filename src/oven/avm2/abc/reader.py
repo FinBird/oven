@@ -25,7 +25,15 @@ from ..enums import (
     EdgeKind,
 )
 
-TraitDataValue: TypeAlias = int|Index[Multiname]|Index["MethodInfo"] |Index["ClassInfo"]|DefaultValue|List[int]|None
+TraitDataValue: TypeAlias = (
+    int
+    | Index[Multiname]
+    | Index["MethodInfo"]
+    | Index["ClassInfo"]
+    | DefaultValue
+    | List[int]
+    | None
+)
 
 
 from ..instruction_formatter import InstructionFormatter
@@ -763,20 +771,20 @@ class ABCReader:
 
     def read_trait(self, pool: ConstantPool) -> Trait:
         """Read a trait entry and resolve key references."""
-        name_idx:int = self.read_u30()
-        name:str = pool.resolve_index(name_idx, "multiname")
+        name_idx: int = self.read_u30()
+        name: str = pool.resolve_index(name_idx, "multiname")
 
-        kind_and_attrs:int = self.read_u8()
-        kind:TraitKind = TraitKind(kind_and_attrs & 0x0F)
-        attrs:int = kind_and_attrs & 0xF0
+        kind_and_attrs: int = self.read_u8()
+        kind: TraitKind = TraitKind(kind_and_attrs & 0x0F)
+        attrs: int = kind_and_attrs & 0xF0
 
-        data:Dict[str,TraitDataValue] = {}
-        metadata:List[str] = []
+        data: Dict[str, TraitDataValue] = {}
+        metadata: List[str] = []
 
         match kind:
             case TraitKind.SLOT | TraitKind.CONST:
                 data["slot_id"] = self.read_u30()
-                type_name_idx:int = self.read_u30()
+                type_name_idx: int = self.read_u30()
                 if type_name_idx > len(pool.multinames):
                     raise InvalidABCCodeError(
                         f"trait type_name index out of range: {type_name_idx}, max: {len(pool.multinames)}"
@@ -796,7 +804,7 @@ class ABCReader:
         # Read metadata indices and resolve display names.
         if attrs & 0x40:  # ATTR_METADATA
             metadata_count: int = self.read_u30()
-            metadata_indices:List[int] = []
+            metadata_indices: List[int] = []
             for _ in range(metadata_count):
                 meta_idx = self.read_u30()
                 metadata_indices.append(meta_idx)
@@ -1226,9 +1234,11 @@ class ABCReader:
                     metadata_prefix=metadata,
                     metadata_count=metadata_count,
                     metadata_table_start=metadata_table_start,
-                    metadata_failure_pos=metadata_failure_pos
-                    if metadata_failure_pos is not None
-                    else self.pos,
+                    metadata_failure_pos=(
+                        metadata_failure_pos
+                        if metadata_failure_pos is not None
+                        else self.pos
+                    ),
                     methods_end_pos=methods_end_pos,
                 )
                 if not candidates:

@@ -40,7 +40,9 @@ class Graphviz:
     @staticmethod
     def _validate_wrap_width(wrap_width: int) -> None:
         if wrap_width <= 0:
-            raise ValueError(f"wrap_width must be a positive integer, got: {wrap_width}")
+            raise ValueError(
+                f"wrap_width must be a positive integer, got: {wrap_width}"
+            )
 
     def _normalize_lines(self, content: str, wrap_width: int) -> list[str]:
         self._validate_wrap_width(wrap_width)
@@ -112,4 +114,3 @@ class Graphviz:
 
     def __str__(self) -> str:
         return "".join(self._buffer) + "}"
-

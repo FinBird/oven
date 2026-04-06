@@ -19,7 +19,10 @@ def test_pipeline_stage_metadata_preserves_order() -> None:
 
     assert isinstance(info, tuple)
     assert len(info) == len(pipeline.stages)
-    assert [stage.name for stage in info] == ["AddOneTransform", "MultiplyByTwoTransform"]
+    assert [stage.name for stage in info] == [
+        "AddOneTransform",
+        "MultiplyByTwoTransform",
+    ]
     assert info[0].description == "Add one to the provided integer."
     assert info[1].description is None
     assert info[0].transform is pipeline.stages[0]

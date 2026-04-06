@@ -981,7 +981,9 @@ class ASTBuild(Transform[Any, Any]):
             return Node("integer", [value], label)
 
         if opcode == Opcode.PushUint:
-            uint_value = safe_int(instruction.operands[0]) if instruction.operands else 0
+            uint_value = (
+                safe_int(instruction.operands[0]) if instruction.operands else 0
+            )
             return Node("unsigned", [uint_value], label)
 
         if opcode == Opcode.PushDouble:
