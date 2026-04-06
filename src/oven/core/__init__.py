@@ -23,7 +23,7 @@ from .code import (
 from .utils import Graphviz
 
 
-from .pipeline import Pipeline, Transform
+from .pipeline import Pipeline, Transform, PipelineStageInfo
 from .transform import (  # noqa: E402
     CFGBuild,
     CFGReduce,
@@ -51,6 +51,7 @@ __all__ = [
     "CodeFormatter",
     "Transform",
     "Pipeline",
+    "PipelineStageInfo",
     "PropagateLabels",
     "PropagateConstants",
     "CFGBuild",

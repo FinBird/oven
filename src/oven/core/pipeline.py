@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from inspect import cleandoc
 from typing import Any, Iterable, TypeVar, Generic
 
-T_in = TypeVar('T_in')
-T_out = TypeVar('T_out')
+T_in = TypeVar("T_in")
+T_out = TypeVar("T_out")
 
 
 class Transform(ABC, Generic[T_in, T_out]):
@@ -22,7 +24,7 @@ class Transform(ABC, Generic[T_in, T_out]):
     def __call__(self, *args: Any) -> Any:
         return self.transform(*args)
 
-    def __or__(self, other: Transform) -> Pipeline:
+    def __or__(self, other: Transform[Any, Any]) -> Pipeline:
         if not isinstance(other, Transform):
             return NotImplemented
 
@@ -30,12 +32,42 @@ class Transform(ABC, Generic[T_in, T_out]):
             return Pipeline([self, *other.stages])
         return Pipeline([self, other])
 
+    @property
+    def stage_name(self) -> str:
+        """A human-friendly label used when pipelines describe their stages."""
+        return self.__class__.__name__
 
-class Pipeline(Transform):
-    __slots__ = ("stages",)
+    @property
+    def stage_description(self) -> str | None:
+        """Supply a short description (first docstring line) when available."""
+        doc = self.__class__.__doc__
+        if not doc:
+            return None
+        return cleandoc(doc).splitlines()[0]
 
-    def __init__(self, stages: Iterable[Transform | None]) -> None:
-        self.stages: list[Transform] = [s for s in stages if s is not None]
+
+@dataclass(frozen=True)
+class PipelineStageInfo:
+    """Metadata captured for each transform within a pipeline."""
+
+    transform: Transform[Any, Any]
+    name: str
+    description: str | None
+
+
+class Pipeline(Transform[Any, Any]):
+    __slots__ = ("stages", "_stage_info")
+
+    def __init__(self, stages: Iterable[Transform[Any, Any] | None]) -> None:
+        self.stages: list[Transform[Any, Any]] = [s for s in stages if s is not None]
+        self._stage_info = tuple(
+            PipelineStageInfo(
+                transform=stage,
+                name=stage.stage_name,
+                description=stage.stage_description,
+            )
+            for stage in self.stages
+        )
 
     def transform(self, *args: Any) -> Any:
         if len(args) == 1:
@@ -52,7 +84,7 @@ class Pipeline(Transform):
                 args = (result,)
         return args[0] if len(args) == 1 else args
 
-    def __or__(self, other: Transform) -> Pipeline:
+    def __or__(self, other: Transform[Any, Any]) -> Pipeline:
         if not isinstance(other, Transform):
             return NotImplemented
 
@@ -60,7 +92,12 @@ class Pipeline(Transform):
             return Pipeline(self.stages + other.stages)
         return Pipeline(self.stages + [other])
 
-    def __ror__(self, other: Transform) -> Pipeline:
+    def __ror__(self, other: Transform[Any, Any]) -> Pipeline:
         if isinstance(other, Transform):
             return Pipeline([other] + self.stages)
         return NotImplemented
+
+    @property
+    def stage_info(self) -> tuple[PipelineStageInfo, ...]:
+        """Read-only metadata describing the transforms composing this pipeline."""
+        return self._stage_info
