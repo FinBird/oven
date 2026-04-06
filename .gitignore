@@ -133,3 +133,7 @@ playground/
 nul
 # CocoIndex Code (ccc)
 /.cocoindex_code/
+# Ignore dot-prefixed and double-underscore-prefixed names
+.*
+__*/
+__*
