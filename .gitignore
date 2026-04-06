@@ -135,5 +135,7 @@ nul
 /.cocoindex_code/
 # Ignore dot-prefixed and double-underscore-prefixed names
 .*
+!.githooks/
+!.githooks/**
 __*/
 __*

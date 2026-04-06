@@ -34,6 +34,20 @@ python -m pip install -U pip
 python -m pip install -e .[dev]
 ```
 
+### 2. Enable repository hooks
+
+The repository ships tracked hooks under `.githooks/`. Enable them once per clone:
+
+```bat
+git config core.hooksPath .githooks
+```
+
+After activation, every `git commit` will:
+
+- run `black` on staged Python files and re-stage the formatter output
+- run `mypy` with the committed strict configuration from `pyproject.toml`
+- block the commit if formatting, type checking, or hook prerequisites fail
+
 ## Common Usage
 
 ### CLI usage
@@ -110,6 +124,7 @@ oven/
 |-- pyproject.toml
 |-- pytest.ini
 |-- profile_decompile.py
+|-- .githooks/
 |-- examples/
 |   `-- export_angel_libs.py
 |-- fixtures/
@@ -119,6 +134,8 @@ oven/
 |-- jpexs-decompiler/
 |-- out/
 |-- reports/
+|-- scripts/
+|   `-- git_hook_pre_commit.py
 `-- src/
     `-- oven/
         |-- __init__.py
@@ -149,10 +166,12 @@ oven/
 Structure notes:
 
 - `pyproject.toml`: packaging metadata, editable install settings, development extras, and shared mypy configuration
+- `.githooks/`: tracked Git hook entrypoints, including the blocking pre-commit gate and preserved Git LFS hooks
 - `src/oven/api/`: stable public orchestration layer for decompilation and export
 - `src/oven/avm2/`: parser, verifier, ABC model, decompiler internals, and AVM2-specific tests
 - `src/oven/cli/`: installable command-line entrypoint exposed as `oven`
 - `src/oven/core/`: reusable AST, CFG, token, pipeline, transform, utility, and documentation helpers
+- `scripts/git_hook_pre_commit.py`: hook implementation that formats staged Python files and runs strict mypy
 - `fixtures/abc/`: local binary ABC fixtures used by parser and decompiler tests
 - `fixtures/jpexs/`: third-party fixture corpus mirrored from JPEXS-related sources
 - `jpexs-decompiler/`: upstream reference tree kept in-repo for comparison and fixture generation workflows
@@ -207,6 +226,19 @@ python -m mypy src/oven/api
 python -m mypy src/oven/core
 python -m mypy src/oven/avm2
 ```
+
+## Commit Hooks
+
+The tracked pre-commit hook is implemented in `.githooks/pre-commit` and delegates
+to `scripts/git_hook_pre_commit.py`.
+
+Behavior:
+
+- formats staged `*.py` files with `black`
+- re-stages formatter changes automatically
+- refuses to auto-format a staged Python file when that file also has unstaged edits
+- runs `python -m mypy` using the strict repository configuration
+- exits non-zero on any failure so `git commit` is rejected
 
 ## TODO
 

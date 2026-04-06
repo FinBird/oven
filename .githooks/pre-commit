@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+if [ -x "$repo_root/.venv/Scripts/python.exe" ]; then
+    exec "$repo_root/.venv/Scripts/python.exe" scripts/git_hook_pre_commit.py
+elif [ -x "$repo_root/.venv/bin/python" ]; then
+    exec "$repo_root/.venv/bin/python" scripts/git_hook_pre_commit.py
+elif command -v python >/dev/null 2>&1; then
+    exec python scripts/git_hook_pre_commit.py
+elif command -v py >/dev/null 2>&1; then
+    exec py -3 scripts/git_hook_pre_commit.py
+else
+    printf >&2 "%s\n" "No Python interpreter was found for the pre-commit hook."
+    exit 1
+fi
