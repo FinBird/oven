@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from oven.core.ast import Node
+from .engine import AS3Emitter
 
 # Pre-computed indent strings for performance
 _INDENTS = ["    " * i for i in range(64)]
@@ -29,6 +30,7 @@ def emit_class_ast(node: Node, indent_level: int = 0) -> str:
             package_node = Node(
                 "package", [node], {"package": package_name, "imports": imports}
             )
+
             return _emit_package_node(package_node, indent_level)
         else:
             return _emit_class_node(node, indent_level)
@@ -217,7 +219,8 @@ def _emit_method_node(node: Node, indent_level: int) -> str:
     """Emit a method node."""
     signature = ""
     body_text = ""
-    is_constructor = node.metadata.get("is_constructor", False)
+    body_ast = None
+    body_ast_metadata = {}
     for child in node.children:
         if not isinstance(child, Node):
             continue
@@ -225,6 +228,22 @@ def _emit_method_node(node: Node, indent_level: int) -> str:
             signature = child.children[0] if child.children else ""
         elif child.type == "method_body_text":
             body_text = child.children[0] if child.children else ""
+        elif child.type == "method_body_ast":
+            candidate = child.children[0] if child.children else None
+            body_ast = candidate if isinstance(candidate, Node) else None
+            body_ast_metadata = child.metadata
+
+    if not body_text and body_ast is not None:
+        body_text = (
+            AS3Emitter(
+                style=body_ast_metadata.get("style", "semantic"),
+                method_context=body_ast_metadata.get("method_context"),
+                int_format=body_ast_metadata.get("int_format", "dec"),
+                inline_vars=bool(body_ast_metadata.get("inline_vars", False)),
+            )
+            .emit(body_ast)
+            .strip()
+        )
 
     indent = _INDENTS[indent_level] if indent_level < 64 else "    " * indent_level
     lines = []

@@ -17,8 +17,6 @@ from oven.core.ast import Node
 from oven.core.pipeline import Pipeline
 
 from .engine import (
-    AS3Emitter,
-    MethodContext,
     _build_method_context,
     _build_method_owner_map,
     _collect_class_method_entries,
@@ -197,17 +195,15 @@ def build_class_ast(
                 ):
                     field_initializers[name] = value
 
-        # Convert NF to source text via AS3Emitter for now
-        # TODO: Keep as AST and integrate into class AST
-        method_text = (
-            AS3Emitter(
-                style=config.style,
-                method_context=context,
-                int_format=config.int_format,
-                inline_vars=config.inline_vars,
-            )
-            .emit(nf)
-            .strip()
+        method_body_node = Node(
+            "method_body_ast",
+            [nf],
+            {
+                "style": config.style,
+                "method_context": context,
+                "int_format": config.int_format,
+                "inline_vars": config.inline_vars,
+            },
         )
 
         # Generate full method signature including getter/setter keywords
@@ -222,7 +218,7 @@ def build_class_ast(
             "method",
             [
                 Node("method_signature", [full_signature]),
-                Node("method_body_text", [method_text]),
+                method_body_node,
             ],
             {"method_index": method_index, "is_constructor": entry.is_constructor},
         )
